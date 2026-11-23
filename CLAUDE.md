@@ -8,7 +8,7 @@
 - 🔴 **הכללים, הנוהל, השומרים והסקילים של `Electrical-project` אינם חלים כאן**
   (`docs/RELEASE_PROCESS.md`, ענפי `release/<slug>`, דגלים, קבלנים, Supabase
   של הקבלנים — כל אלה שייכים לפרויקט ההוא בלבד).
-- אל תיגע מכאן בתיקייה `D:\מיכאל\github\Electrical-project`, ואל תשתמש במסד
+- אל תיגע מכאן בתיקייה `D:\AI-Projects\github\Electrical-project`, ואל תשתמש במסד
   או בפרויקט Vercel שלו.
 
 ## עבודה מול המפעיל

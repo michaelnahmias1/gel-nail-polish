@@ -44,8 +44,8 @@
 - **מסד:** פרויקט Supabase בשם `gel-nail-polish`, מזהה `gvfehbfzjxnmqwdrjbxd`.
   (המזהה `gkxarifehwvpqlobdhow` שייך ל-`Electrical-project` — לא נוגעים בו.)
 - **אתר:** פרויקט Vercel בשם `gel-nail-polish` → `https://gel-nail-polish.vercel.app`.
-  הגרסה החיה עולה מהענף `mvp-booking` (העלאה יזומה ל-production; `main` עדיין לא מכיל את הקוד).
-- **ענף העבודה:** `mvp-booking`.
+  הפרויקט מקושר למאגר ב-GitHub: 🔴 **כל דחיפה ל-`main` עולה אוטומטית לאתר החי.**
+- **ענפים:** `main` הוא מה שחי. עובדים בענף נפרד, בודקים, וממזגים ל-`main` רק באישור המפעיל.
 
 ## דברים שחייבים לדעת
 

@@ -1,0 +1,8 @@
+node_modules/
+.env
+.env.*
+.vercel/
+tests/.pgdata/
+*.log
+.secrets/
+screenshots/

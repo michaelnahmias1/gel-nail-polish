@@ -1,0 +1,28 @@
+{
+  "name": "gel-nail-polish",
+  "private": true,
+  "version": "0.1.0",
+  "description": "אפליקציית תורים ללק ג'ל — PWA בעברית",
+  "type": "module",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 tests/",
+    "dev": "node scripts/dev-server.mjs",
+    "vendor": "node scripts/vendor.mjs"
+  },
+  "devDependencies": {
+    "@fontsource-variable/heebo": "^5.3.0",
+    "@supabase/supabase-js": "^2.119.2",
+    "embedded-postgres": "^17.11.0-beta.19",
+    "pg": "^8.23.1",
+    "playwright": "^1.65.1"
+  },
+  "allowScripts": {
+    "@embedded-postgres/windows-x64@17.11.0-beta.19": true
+  },
+  "dependencies": {
+    "web-push": "^3.6.7"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

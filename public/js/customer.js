@@ -423,7 +423,7 @@ export async function chooseServices(params) {
     if (item) {
       return h('div.choice.selected', { 'data-id': s.id },
         h('span.choice-name', itemText(s, item.qty)),
-        h('span.choice-meta', h('span.chosen-mark', icon('check'), ' נבחר'),
+        h('span.choice-meta', h('span.chosen-mark', icon('check'), ' נבחר'), ' · ',
           h('button.link', { type: 'button', 'aria-label': `הסרת ${s.name}`, onclick: () => remove(s) }, 'הסרה')));
     }
     if (s.price_type === 'per_unit') {

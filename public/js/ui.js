@@ -43,7 +43,9 @@ export function mount(...nodes) {
   document.title = title && title !== appName ? `${title} · ${appName}` : appName || title || document.title;
   const active = document.activeElement;
   if (heading && (hadFocus || !active || active === document.body || !document.contains(active))) {
+    // הכותרת אינה כפתור — מקבלת פוקוס רק כדי שקורא מסך יתחיל ממנה, בלי מסגרת פוקוס.
     heading.setAttribute('tabindex', '-1');
+    heading.style.outline = 'none';
     heading.focus({ preventScroll: true });
   }
 }

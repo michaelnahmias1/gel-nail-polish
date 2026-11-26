@@ -744,28 +744,47 @@ async function timeoff() {
 
 function rules() {
   const s = state.settings;
-  const num = (id, value, min, max, step = 1) => h('input.field', { id, type: 'number', value, min, max, step, inputmode: 'numeric' });
+  const num = (id, value, min, max, step = 1) => h('input.field', { id, type: 'number', value, min, max, step, inputmode: 'decimal', required: true });
   const windowDays = num('win', s.booking_window_days, 1, 365);
   const notice = num('notice', s.min_notice_min / 60, 0, 168, 0.5);
   const buffer = num('buffer', s.buffer_min, 0, 120, 5);
   const step = h('select.field', { id: 'step' }, [10, 15, 20, 30, 60].map((v) => h('option', { value: v, selected: v === s.slot_step_min }, `כל ${v} דקות`)));
-  const reminder = h('input.field', { id: 'rem', type: 'time', step: 900, value: s.reminder_time.slice(0, 5) });
+  const reminder = h('input.field', { id: 'rem', type: 'time', step: 900, value: s.reminder_time.slice(0, 5), required: true });
   const btn = h('button.btn.primary', { type: 'submit' }, 'שמירה');
+
+  // שדה ריק לא נשמר כ-0: כל שדה חובה ובתוך הטווח שלו.
+  const check = (input, min, max, { integer = true, unit }) => {
+    const v = input.value.trim();
+    if (v === '') return [input, 'שדה חובה'];
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < min || n > max || (integer && !Number.isInteger(n))) {
+      return [input, `${integer ? 'מספר שלם ' : ''}בין ${min} ל-${max} ${unit}`];
+    }
+    if (!integer && !Number.isInteger(n * 2)) return [input, 'בקפיצות של חצי שעה (למשל 1.5)'];
+    return null;
+  };
+
   const save = busy(btn, async () => {
+    for (const el of [windowDays, notice, buffer, reminder]) clearFieldError(el);
+    const bad = check(windowDays, 1, 365, { unit: 'ימים' })
+      || check(notice, 0, 168, { integer: false, unit: 'שעות' })
+      || check(buffer, 0, 120, { unit: 'דקות' })
+      || (reminder.value ? null : [reminder, 'בחרי שעה']);
+    if (bad) return fieldError(...bad);
     try {
       await updateSettings({
-        booking_window_days: Math.round(Number(windowDays.value)),
+        booking_window_days: Number(windowDays.value),
         min_notice_min: Math.round(Number(notice.value) * 60),
-        buffer_min: Math.round(Number(buffer.value)),
+        buffer_min: Number(buffer.value),
         slot_step_min: Number(step.value),
         reminder_time: reminder.value,
       });
       toast('נשמר');
     } catch (e) { showError(e); }
   });
-  return h('form.card.stack', { onsubmit: (e) => { e.preventDefault(); save(); } },
+  return h('form.card.stack', { onsubmit: (e) => { e.preventDefault(); save(); }, novalidate: true },
     field('כמה ימים קדימה אפשר לקבוע', windowDays),
-    field('כמה שעות לפחות לפני התור (התראה מינימלית)', notice),
+    field('כמה שעות לפחות לפני התור אפשר לקבוע', notice),
     field('מרווח בין תורים (דקות)', buffer),
     field('השעות שמוצעות ללקוחה', step),
     field('שעת התזכורת ביום שלפני התור', reminder),

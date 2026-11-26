@@ -261,6 +261,8 @@ select.field { appearance: auto; }
 .range { gap: 8px; }
 .range .field { flex: 1 1 6.5em; min-width: 6.5em; padding-inline: 10px; }
 .range > span { flex: none; }
+/* תאריך + שעה זה לצד זה (תור ידני, חסימה): יורדים לשורות נפרדות כשאין מקום */
+.row > .grow:has(> .field[type="date"], > .field[type="time"]) { flex: 1 1 9em; }
 
 /* סימון «יש שינויים שלא נשמרו» */
 .unsaved:not(.btn) {
@@ -360,8 +362,8 @@ select.field { appearance: auto; }
   scroll-padding-inline: 20px;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
-  -webkit-mask-image: linear-gradient(to left, transparent 0, #000 40px);
-  mask-image: linear-gradient(to left, transparent 0, #000 40px);
+  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 40px);
+  mask-image: linear-gradient(to right, transparent 0, #000 40px);
 }
 .days::-webkit-scrollbar { display: none; }
 .day {
@@ -407,14 +409,15 @@ select.field { appearance: auto; }
 .kv:last-child { border-bottom: 0; }
 .kv .k { color: var(--muted); }
 .kv .v { font-weight: 600; text-align: left; }
-.done-mark { width: 84px; height: 84px; border-radius: 50%; background: var(--ok); color: var(--primary-ink); font-size: var(--fs-xl); display: flex; align-items: center; justify-content: center; }
+.done-mark { width: 84px; height: 84px; border-radius: 50%; background: var(--ok); color: var(--primary-ink); font-size: 2.4rem; /* גודל סמל, לא טקסט */ display: flex; align-items: center; justify-content: center; }
 .done-mark .icon { width: 44px; height: 44px; }
 .past { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 
 /* ───────── יומן בעלת העסק ───────── */
 /* רווח תחתון: גובה הכפתור העגול + המרווח שלו + אזור הבית של המכשיר, כדי שלא יכסה את היום האחרון */
 .owner { padding-bottom: calc(22px + 64px + 28px + env(safe-area-inset-bottom)); }
-.week-nav { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.week-nav { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px; }
+.week-nav .btn.ghost { white-space: nowrap; padding-inline: 6px; }
 .banner { display: flex; align-items: center; gap: 10px; background: var(--primary-soft); box-shadow: none; padding: 12px 14px; }
 .day-block { background: var(--card); border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; scroll-margin-top: 12px; }
 .day-block.today { outline: 2px solid var(--primary); }

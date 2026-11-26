@@ -111,6 +111,8 @@ const saveNav = () => { try { sessionStorage.setItem(NAV_KEY, JSON.stringify(nav
 
 export const currentHash = () => location.hash || '#/';
 const pathOf = (hash) => String(hash || '').split('?')[0];
+// אותו מסך בשתי כתובות: היומן של בעלת העסק נפתח גם ב-#/ וגם ב-#/owner.
+const screenOf = (hash) => (pathOf(hash) === '#/owner' ? '#/' : pathOf(hash));
 
 export function setRouter(fn) { router = fn; }
 
@@ -178,7 +180,7 @@ export function go(hash, { replace = false } = {}) {
 
 const findBack = (target) => {
   for (let k = 1; k <= navIdx; k++) if (navStack[navIdx - k] === target) return k;
-  for (let k = 1; k <= navIdx; k++) if (pathOf(navStack[navIdx - k]) === pathOf(target)) return k;
+  for (let k = 1; k <= navIdx; k++) if (screenOf(navStack[navIdx - k]) === screenOf(target)) return k;
   return 0;
 };
 

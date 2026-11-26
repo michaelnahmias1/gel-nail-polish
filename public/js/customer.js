@@ -89,7 +89,7 @@ export function login() {
   const showSent = (r) => {
     sentText.replaceChildren(
       r.channel === 'whatsapp' ? 'שלחנו קוד בוואטסאפ למספר ' : 'הקוד למספר ',
-      ltr(phoneDisplay(phone)));
+      ltr(phoneDisplay(digitsOf(phone).replace(/^972/, '0').replace(/^5/, '05'))));
     demoBox.replaceChildren(r.demoCode
       ? h('div.demo', h('strong', 'מצב בדיקה'), ' — הוואטסאפ עוד לא מחובר, אז הקוד מוצג כאן: ',
         h('bdi.demo-code', r.demoCode))

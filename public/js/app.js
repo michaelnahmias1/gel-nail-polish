@@ -85,6 +85,8 @@ const routes = [
 
 const SLOW_MS = 15000;
 let routeSeq = 0;
+// מזהה הניתוב הנוכחי: מסך שסיים לטעון אחרי שעברו למסך אחר בודק אותו ולא מצייר.
+export const routeId = () => routeSeq;
 
 // מסך שגיאה: שומר את הכותרת של המסך שניסינו לפתוח, ומציע לנסות שוב או לחזור לדף הבית / ליומן.
 function errorScreen(retry, { keepHeader = true } = {}) {

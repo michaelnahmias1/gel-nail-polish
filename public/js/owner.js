@@ -5,7 +5,7 @@ import {
   money, minutesText, itemsText, waLink, phoneDisplay,
 } from './ui.js';
 import { icon } from './icons.js';
-import { state, loadProfile, loadBusiness, logout, go } from './app.js';
+import { state, loadProfile, loadBusiness, logout, go, routeId } from './app.js';
 
 const minutesBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 60000);
 
@@ -180,7 +180,9 @@ function apptRow(a) {
 
 export async function appointment(_params, id) {
   mount(h('main.page', header('פרטי תור'), h('div.center', spinner())));
+  const seq = routeId();
   const { data: a, error } = await state.sb.from('appointments').select('*').eq('id', id).single();
+  if (seq !== routeId()) return;
   if (error) throw error;
   const back = `#/owner?d=${dateKey(a.start_at)}`;
   const kv = (k, v) => h('div.kv', h('span.k', k), h('span.v', v));
@@ -376,7 +378,9 @@ export async function settingsSection(params, key) {
   if (!fn) return go('#/owner/settings', { replace: true });
   const title = SECTIONS.find((s) => s[0] === key)[1];
   mount(h('main.page', header(title, { back: '#/owner/settings' }), h('div.center', spinner())));
+  const seq = routeId();
   const body = await fn(params);
+  if (seq !== routeId()) return;
   mount(h('main.page', header(title, { back: '#/owner/settings' }), body));
 }
 

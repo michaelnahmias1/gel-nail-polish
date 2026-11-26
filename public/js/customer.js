@@ -5,7 +5,7 @@ import {
   money, minutesText, itemsText, waLink, phoneDisplay,
 } from './ui.js';
 import { icon } from './icons.js';
-import { state, loadProfile, logout, go, goBack, goFrom, isOwner, afterLoginTarget } from './app.js';
+import { state, loadProfile, logout, go, goBack, goFrom, isOwner, afterLoginTarget, routeId } from './app.js';
 
 // ───────────────────────── כניסה ─────────────────────────
 
@@ -289,7 +289,9 @@ function startBooking(e) {
 
 export async function home() {
   mount(h('main.page.center', spinner()));
+  const id = routeId();
   const next = await myUpcoming();
+  if (id !== routeId()) return;
   const first = state.profile.name.split(' ')[0];
 
   mount(h('main.page', { 'data-title': 'דף הבית' },
@@ -384,7 +386,10 @@ export async function chooseServices(params) {
   const title = () => (draft().items.length ? 'הוספת טיפול' : 'איזה טיפול?');
   const back = adding ? '#/book/time' : '#/';
   mount(h('main.page', header(title(), { back }), h('div.center', spinner())));
-  if (!isOwner() && await myUpcoming()) {
+  const id = routeId();
+  const upcoming = !isOwner() && await myUpcoming();
+  if (id !== routeId()) return;
+  if (upcoming) {
     toast('כבר יש לך תור עתידי. אפשר לבטל אותו כאן ולקבוע חדש.');
     return go('#/mine', { replace: true });
   }
@@ -480,9 +485,11 @@ export async function chooseTime() {
 
   const from = todayKey();
   const to = addDays(from, state.settings.booking_window_days);
+  const id = routeId();
   const { data, error } = await state.sb.rpc('get_free_slots', {
     p_business: state.business.id, p_items: d.items, p_from: from, p_to: to,
   });
+  if (id !== routeId()) return;
   if (error) throw error;
 
   const byDay = new Map();
@@ -621,12 +628,14 @@ export function booked() {
 
 export async function mine() {
   mount(h('main.page', header('התורים שלי', { back: '#/' }), h('div.center', spinner())));
+  const id = routeId();
   const [{ data: upcoming, error: e1 }, { data: past, error: e2 }] = await Promise.all([
     state.sb.from('appointments').select('*').eq('customer_id', state.profile.id).eq('status', 'booked')
       .gt('end_at', new Date().toISOString()).order('start_at'),
     state.sb.from('appointments').select('*').eq('customer_id', state.profile.id)
       .lte('end_at', new Date().toISOString()).eq('status', 'booked').order('start_at', { ascending: false }).limit(5),
   ]);
+  if (id !== routeId()) return;
   if (e1) throw e1;
   if (e2) throw e2;
 

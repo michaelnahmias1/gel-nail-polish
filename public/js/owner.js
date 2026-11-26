@@ -1,6 +1,6 @@
 // מסכי בעלת העסק: יומן שבועי, פרטי תור, תור ידני, הגדרות, ורישום ראשוני כבעלת העסק.
 import {
-  h, mount, header, spinner, toast, showError, errorText, busy, fieldError, clearFieldError, setLeaveGuard,
+  h, mount, header, spinner, toast, showError, errorText, busy, fieldError, clearFieldError, setLeaveGuard, clearLeaveGuard,
   dateKey, timeText, shortDate, longDate, dayLabel, dayName, todayKey, addDays, weekdayOf, zonedToDate,
   money, minutesText, itemsText, waLink, phoneDisplay,
 } from './ui.js';
@@ -463,11 +463,12 @@ function leaveGuard(anchor, isDirty, message) {
   function release() {
     document.removeEventListener('click', onClick, true);
     window.removeEventListener('beforeunload', onUnload);
-    setLeaveGuard(null);
+    clearLeaveGuard(guard);
   }
+  const guard = () => gone() || !isDirty() || window.confirm(message);
   document.addEventListener('click', onClick, true);
   window.addEventListener('beforeunload', onUnload);
-  setLeaveGuard(() => gone() || !isDirty() || window.confirm(message));
+  setLeaveGuard(guard);
 }
 
 async function hours() {

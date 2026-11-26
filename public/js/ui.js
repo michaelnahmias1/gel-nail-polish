@@ -118,6 +118,8 @@ export function setRouter(fn) { router = fn; }
 let leaveGuardFn = null;
 let reverting = false;
 export function setLeaveGuard(fn) { leaveGuardFn = fn || null; }
+// מסיר את השומר רק אם הוא עדיין של המסך הזה (מאזין ישן לא ימחק שומר של ביקור חדש).
+export function clearLeaveGuard(fn) { if (leaveGuardFn === fn) leaveGuardFn = null; }
 export function passLeaveGuard() {
   if (reverting) { reverting = false; return false; }
   if (!leaveGuardFn) return true;

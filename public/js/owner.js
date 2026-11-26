@@ -1,30 +1,63 @@
 // מסכי בעלת העסק: יומן שבועי, פרטי תור, תור ידני, הגדרות, ורישום ראשוני כבעלת העסק.
 import {
-  h, mount, header, spinner, toast, showError, busy,
+  h, mount, header, spinner, toast, showError, errorText, busy, fieldError, clearFieldError,
   dateKey, timeText, shortDate, longDate, dayLabel, dayName, todayKey, addDays, weekdayOf, zonedToDate,
   money, minutesText, itemsText, waLink, phoneDisplay,
 } from './ui.js';
+import { icon } from './icons.js';
 import { state, loadProfile, loadBusiness, logout, go } from './app.js';
 
 const minutesBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 60000);
 
+// טקסט משמאל לימין בתוך שורה עברית (טווחי שעות, תאריכים, טלפונים, קישורים),
+// כדי ש-09:00–18:00 לא יוצג הפוך.
+const ltr = (text) => h('span.ltr', { dir: 'ltr' }, text);
+// אותו דבר לטקסט רגיל (חלונות confirm): בידוד LRI…PDI.
+const ltrPlain = (text) => `⁦${text}⁩`;
+const range = (a, b) => `${a}–${b}`;
+
+// «תור אחד» / «3 תורים».
+const countText = (n, one, many) => (n === 1 ? one : `${n} ${many}`);
+
+const hhmmToMin = (t) => { const [hh, mm] = t.split(':').map(Number); return hh * 60 + mm; };
+const minToHhmm = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+
+// «יום שלישי, 1 בדצמבר» (עם «היום»/«מחר» כשמתאים).
+function dayAndDate(ts) {
+  const k = dateKey(ts);
+  const label = dayLabel(k);
+  const day = label.startsWith('יום') ? label : `${label}, יום ${dayName(weekdayOf(k))}`;
+  return `${day}, ${longDate(ts)}`;
+}
+
+// נייד ישראלי — אותו כלל כמו private.phone_normalize במסד.
+const isMobile = (v) => /^(9725\d{8}|05\d{8}|5\d{8})$/.test(String(v).replace(/\D/g, ''));
+// טלפון ליצירת קשר: נייד או קווי.
+const isPhone = (v) => /^(0\d{8,9}|972\d{8,9})$/.test(String(v).replace(/\D/g, ''));
+
 // ───────────────────────── רישום כבעלת העסק ─────────────────────────
 
 export function claim() {
-  const input = h('input.field', { id: 'claim', autocomplete: 'off', placeholder: 'קוד הקמה', dir: 'ltr' });
+  const input = h('input.field', { id: 'claim', autocomplete: 'off', dir: 'ltr', required: true, autocapitalize: 'off', spellcheck: 'false' });
   const btn = h('button.btn.primary', { type: 'submit' }, 'אישור');
   const submit = busy(btn, async () => {
-    const { error } = await state.sb.rpc('claim_owner', { p_business: state.business.id, p_code: input.value.trim() });
-    if (error) return showError(error);
+    const code = input.value.trim();
+    if (!code) return fieldError(input, 'צריך להזין את קוד ההקמה');
+    const { error } = await state.sb.rpc('claim_owner', { p_business: state.business.id, p_code: code });
+    if (error) {
+      if (/BAD_CLAIM_CODE/.test(error.message || '')) return fieldError(input, errorText(error));
+      return showError(error);
+    }
     await loadProfile();
     toast('את רשומה כבעלת העסק');
     go('#/owner');
   });
   mount(h('main.page',
     header('הקמת בעלת העסק', { back: '#/' }),
-    h('div.card', h('form.stack', { onsubmit: (e) => { e.preventDefault(); submit(); } },
+    h('div.card', h('form.stack', { onsubmit: (e) => { e.preventDefault(); submit(); }, novalidate: true },
       h('p', 'הזיני את קוד ההקמה שקיבלת. המספר שאיתו התחברת יירשם כמספר של בעלת העסק.'),
-      input, btn))));
+      h('div.stack.tight', h('label.label', { for: 'claim' }, 'קוד הקמה'), input),
+      btn))));
 }
 
 // ───────────────────────── יומן שבועי ─────────────────────────

@@ -105,6 +105,7 @@ let router = () => {};
 let navIdx = -1;
 let navStack = [];
 let pendingPush = null;
+let pendingBase = null;
 try { navStack = JSON.parse(sessionStorage.getItem(NAV_KEY)) || []; } catch { navStack = []; }
 const saveNav = () => { try { sessionStorage.setItem(NAV_KEY, JSON.stringify(navStack)); } catch { /* מצב פרטי */ } };
 
@@ -142,6 +143,14 @@ export function trackNavigation() {
   }
   navStack[navIdx] = currentHash();
   saveNav();
+  if (pendingBase) {
+    // goFrom חזר עד תחילת ההיסטוריה של האפליקציה: הצעד הזה הופך ל-base (למשל הבית).
+    const base = pendingBase;
+    pendingBase = null;
+    history.replaceState({ idx: navIdx }, '', base);
+    navStack[navIdx] = base;
+    saveNav();
+  }
   if (pendingPush) {
     const target = pendingPush;
     pendingPush = null;
@@ -184,9 +193,22 @@ export function goBack(target = '#/') {
 // (למשל «התור נקבע!»), כדי ש«חזרה» לא תוביל שוב לשלבי התהליך.
 export function goFrom(base, hash) {
   const k = findBack(base);
-  if (!k) return go(hash, { replace: true });
+  if (k) {
+    pendingPush = hash;
+    return history.go(-k);
+  }
+  // base לא בהיסטוריה (למשל נכנסו מקישור ישיר): חוזרים לצעד הראשון של האפליקציה, הופכים אותו ל-base,
+  // ומשם עוברים ל-hash. כך «חזרה» מוביל ל-base ולא שוב לשלבי התהליך.
+  if (navIdx <= 0) {
+    history.replaceState({ idx: navIdx }, '', base);
+    navStack[navIdx] = base;
+    saveNav();
+    location.hash = hash;
+    return;
+  }
+  pendingBase = base;
   pendingPush = hash;
-  history.go(-k);
+  history.go(-navIdx);
 }
 
 // הודעות שגיאה מהמסד → עברית פשוטה.

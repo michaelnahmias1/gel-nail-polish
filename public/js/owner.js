@@ -191,7 +191,7 @@ export async function appointment(_params, id) {
     });
 
     // אחרי ביטול על ידי בעלת העסק המערכת לא שולחת כלום — מציעים הודעה מוכנה.
-    const waText = `היי ${a.customer_name}, כאן ${state.business.name}. התור שלך ב${when} בשעה ${time} בוטל. אפשר לקבוע תור חדש כאן: ${location.origin}/`;
+    const waText = `היי ${a.customer_name}, כאן ${state.business.name}. התור שלך ביום ${dayName(weekdayOf(dateKey(a.start_at)))}, ${longDate(a.start_at)} בשעה ${time} בוטל. אפשר לקבוע תור חדש כאן: ${location.origin}/`;
     const cancelledCard = justCancelled ? h('div.card.warn.stack', { role: 'status' },
       h('strong', 'התור בוטל. הלקוחה לא קיבלה על כך הודעה.'),
       a.customer_phone

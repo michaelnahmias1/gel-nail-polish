@@ -1,6 +1,6 @@
 // Service worker: שומר את מעטפת האפליקציה לטעינה מהירה, ומציג התראות פוש לבעלת העסק.
-const CACHE = 'gel-v1';
-const SHELL = ['/', '/index.html', '/app.css', '/js/app.js', '/js/ui.js', '/js/customer.js', '/js/owner.js',
+const CACHE = 'gel-v2';
+const SHELL = ['/', '/index.html', '/app.css', '/js/app.js', '/js/ui.js', '/js/icons.js', '/js/customer.js', '/js/owner.js',
   '/vendor/supabase.js', '/vendor/heebo-hebrew.woff2', '/vendor/heebo-latin.woff2', '/icons/icon.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (e) => {

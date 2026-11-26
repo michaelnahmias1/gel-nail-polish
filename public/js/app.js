@@ -1,6 +1,6 @@
 // נקודת הכניסה: טוען הגדרות, מתחבר למסד, ומנתב בין המסכים לפי הכתובת (#/...).
 import {
-  h, mount, spinner, toast, header, setAppName, setRouter, trackNavigation, currentHash,
+  h, mount, spinner, toast, header, setAppName, setRouter, trackNavigation, currentHash, passLeaveGuard,
   go as navGo, goBack, goFrom, isOffline,
 } from './ui.js';
 import * as customer from './customer.js';
@@ -117,6 +117,7 @@ function slowNotice(seq, retry) {
 }
 
 async function route() {
+  if (!passLeaveGuard()) return;
   if (!trackNavigation()) return;
   const seq = ++routeSeq;
   const raw = currentHash().replace(/^#/, '') || '/';

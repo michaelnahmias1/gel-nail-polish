@@ -113,6 +113,21 @@ const pathOf = (hash) => String(hash || '').split('?')[0];
 
 export function setRouter(fn) { router = fn; }
 
+// שומר יציאה: מסך עם שינויים שלא נשמרו רושם פונקציה שמחזירה true אם מותר לצאת.
+// הנתב בודק אותה לפני כל מעבר — גם בכפתור «אחורה» של הטלפון — ואם אסור, מחזיר את הכתובת.
+let leaveGuardFn = null;
+let reverting = false;
+export function setLeaveGuard(fn) { leaveGuardFn = fn || null; }
+export function passLeaveGuard() {
+  if (reverting) { reverting = false; return false; }
+  if (!leaveGuardFn) return true;
+  if (leaveGuardFn()) { leaveGuardFn = null; return true; }
+  const st = history.state;
+  const delta = st && Number.isInteger(st.idx) ? navIdx - st.idx : -1;
+  if (delta) { reverting = true; history.go(delta); }
+  return false;
+}
+
 // נקרא בתחילת כל ניתוב. מחזיר false אם צריך מיד לעבור למסך אחר (ואז אין לצייר את הנוכחי).
 export function trackNavigation() {
   const st = history.state;

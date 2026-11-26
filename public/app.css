@@ -269,7 +269,7 @@ select.field { appearance: auto; }
 .row > .grow:has(> .field[type="date"], > .field[type="time"]) { flex: 1 1 9em; }
 
 /* סימון «יש שינויים שלא נשמרו» */
-.unsaved:not(.btn) {
+.unsaved:not(.btn):not(.card) {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -281,7 +281,7 @@ select.field { appearance: auto; }
   font-size: var(--fs-sm);
   font-weight: 600;
 }
-.unsaved:not(.btn)::before, .btn.unsaved::before {
+.unsaved:not(.btn):not(.card)::before, .btn.unsaved::before {
   content: '';
   width: 8px;
   height: 8px;
@@ -528,3 +528,15 @@ select.field { appearance: auto; }
   .spinner { border-color: var(--primary-soft-strong); animation: pulse 1.6s ease-in-out infinite !important; }
   .btn.busy::after, .btn.loading::after, button[aria-busy="true"]::after { animation: pulse 1.6s ease-in-out infinite !important; }
 }
+
+/* ───── איחוד: בקשות מסשני הלקוחה ובעלת העסק ───── */
+.slot-groups { display: flex; flex-direction: column; gap: 16px; }
+.slot-group { display: flex; flex-direction: column; gap: 8px; }
+.slot-group > .slot-group-title { margin: 0; }
+.slow-note { margin-top: 18px; }
+.choice.selected { border: 2px solid var(--primary); background: var(--primary-soft); }
+.chosen-mark { display: inline-flex; align-items: center; gap: 4px; color: var(--primary); font-weight: 600; }
+.summary .btn { white-space: nowrap; }
+.link { gap: 6px; }
+.range > .field-error { flex-basis: 100%; order: 1; }
+.card.unsaved { outline: 2px dashed var(--warn-line); outline-offset: -2px; }

@@ -1,6 +1,6 @@
 // מסכי בעלת העסק: יומן שבועי, פרטי תור, תור ידני, הגדרות, ורישום ראשוני כבעלת העסק.
 import {
-  h, mount, header, spinner, toast, showError, errorText, busy, fieldError, clearFieldError,
+  h, mount, header, spinner, toast, showError, errorText, busy, fieldError, clearFieldError, setLeaveGuard,
   dateKey, timeText, shortDate, longDate, dayLabel, dayName, todayKey, addDays, weekdayOf, zonedToDate,
   money, minutesText, itemsText, waLink, phoneDisplay,
 } from './ui.js';
@@ -50,7 +50,7 @@ export function claim() {
     }
     await loadProfile();
     toast('את רשומה כבעלת העסק');
-    go('#/owner');
+    go('#/owner', { replace: true });
   });
   mount(h('main.page',
     header('הקמת בעלת העסק', { back: '#/' }),
@@ -373,7 +373,7 @@ export function settings() {
 
 export async function settingsSection(params, key) {
   const fn = { business, hours, services, timeoff, rules, notify, link }[key];
-  if (!fn) return go('#/owner/settings');
+  if (!fn) return go('#/owner/settings', { replace: true });
   const title = SECTIONS.find((s) => s[0] === key)[1];
   mount(h('main.page', header(title, { back: '#/owner/settings' }), h('div.center', spinner())));
   const body = await fn(params);
@@ -439,7 +439,7 @@ function business() {
 }
 
 // אזהרה לפני יציאה ממסך עם שינויים שלא נשמרו: לחיצה על קישור או על «חזרה», וסגירה/רענון של הדף.
-// (חזרה בכפתור «אחורה» של הטלפון לא ניתנת לעצירה מכאן.)
+// כפתור «אחורה» של הטלפון נעצר דרך setLeaveGuard בנתב.
 function leaveGuard(anchor, isDirty, message) {
   let seen = false;
   setTimeout(() => { seen = true; }, 0);
@@ -463,9 +463,11 @@ function leaveGuard(anchor, isDirty, message) {
   function release() {
     document.removeEventListener('click', onClick, true);
     window.removeEventListener('beforeunload', onUnload);
+    setLeaveGuard(null);
   }
   document.addEventListener('click', onClick, true);
   window.addEventListener('beforeunload', onUnload);
+  setLeaveGuard(() => gone() || !isDirty() || window.confirm(message));
 }
 
 async function hours() {

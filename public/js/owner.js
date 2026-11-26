@@ -382,21 +382,47 @@ async function updateSettings(patch) {
 }
 
 function business() {
-  const name = h('input.field', { id: 'bname', value: state.business.name, maxlength: 60 });
+  const name = h('input.field', { id: 'bname', value: state.business.name, maxlength: 60, required: true });
   const address = h('input.field', { id: 'addr', value: state.settings.address, maxlength: 120 });
-  const phone = h('input.field', { id: 'bphone', type: 'tel', value: phoneDisplay(state.settings.contact_phone) || state.settings.contact_phone, maxlength: 15 });
+  const phone = h('input.field', {
+    id: 'bphone', type: 'tel', inputmode: 'tel', dir: 'ltr', maxlength: 15,
+    value: phoneDisplay(state.settings.contact_phone) || state.settings.contact_phone || '',
+  });
   const btn = h('button.btn.primary', { type: 'submit' }, 'שמירה');
   const save = busy(btn, async () => {
-    try {
-      if (!name.value.trim()) return toast('צריך שם לעסק', 'error');
-      const { error } = await state.sb.from('businesses').update({ name: name.value.trim() }).eq('id', state.business.id);
-      if (error) throw error;
-      await updateSettings({ address: address.value.trim(), contact_phone: phone.value.replace(/[^\d+]/g, '') });
-      await loadBusiness();
-      toast('נשמר');
-    } catch (e) { showError(e); }
+    for (const el of [name, phone]) clearFieldError(el);
+    const newName = name.value.trim();
+    if (!newName) return fieldError(name, 'צריך שם לעסק');
+    if (phone.value.trim() && !isPhone(phone.value)) return fieldError(phone, 'מספר טלפון לא תקין. למשל 050-1234567 או 03-1234567');
+    const patch = { address: address.value.trim(), contact_phone: phone.value.replace(/[^\d+]/g, '') };
+    const oldName = state.business.name;
+    const nameChanged = newName !== oldName;
+    const settingsChanged = patch.address !== (state.settings.address || '') || patch.contact_phone !== (state.settings.contact_phone || '');
+    if (!nameChanged && !settingsChanged) return toast('אין שינויים לשמור');
+
+    // שני שלבים (שם בטבלת העסק, כתובת וטלפון בהגדרות). אם השני נכשל — מחזירים את השם, כדי לא להשאיר חצי מצב.
+    if (nameChanged) {
+      const { error } = await state.sb.from('businesses').update({ name: newName }).eq('id', state.business.id);
+      if (error) return showError(error);
+    }
+    if (settingsChanged) {
+      try {
+        await updateSettings(patch);
+      } catch (e) {
+        console.error(e);
+        if (!nameChanged) return showError(e);
+        const { error: undo } = await state.sb.from('businesses').update({ name: oldName }).eq('id', state.business.id);
+        if (undo) {
+          state.business.name = newName;
+          return toast('שם העסק נשמר, אבל הכתובת והטלפון לא נשמרו. לחצי «שמירה» שוב.', 'error');
+        }
+        return toast(`לא הצלחתי לשמור, ושום דבר לא השתנה. ${errorText(e)}`, 'error');
+      }
+    }
+    try { await loadBusiness(); } catch (e) { console.error(e); }
+    toast('נשמר');
   });
-  return h('form.card.stack', { onsubmit: (e) => { e.preventDefault(); save(); } },
+  return h('form.card.stack', { onsubmit: (e) => { e.preventDefault(); save(); }, novalidate: true },
     field('שם העסק', name),
     field('כתובת (מופיעה ללקוחה באישור)', address),
     field('טלפון ליצירת קשר (לכפתור "צרי קשר")', phone),
@@ -880,11 +906,11 @@ async function enablePush() {
 
 function pushBanner() {
   if (!pushSupported() || !state.cfg.vapidPublic || Notification.permission === 'granted') return null;
-  if (localStorage.getItem('push-banner-hidden') === '1') return null;
+  try { if (localStorage.getItem('push-banner-hidden') === '1') return null; } catch { /* מצב פרטי */ }
   const el = h('div.card.banner',
     h('span.grow', 'רוצה לקבל הודעה על כל תור חדש?'),
     h('a.btn.primary.small', { href: '#/owner/settings/notify' }, 'הפעלה'),
-    h('button.icon-btn', { type: 'button', 'aria-label': 'סגירה', onclick: () => { localStorage.setItem('push-banner-hidden', '1'); el.remove(); } }, '✕'));
+    h('button.icon-btn', { type: 'button', 'aria-label': 'סגירה', onclick: () => { try { localStorage.setItem('push-banner-hidden', '1'); } catch { /* מצב פרטי */ } el.remove(); } }, icon('close')));
   return el;
 }
 
@@ -924,13 +950,13 @@ function link() {
   return h('div.stack',
     h('div.card.stack',
       h('h3', 'הקישור לקביעת תור'),
-      h('bdi.url', url),
+      h('p.url', ltr(url)),
       h('div.row',
         h('button.btn.secondary', { type: 'button', onclick: () => copy(url) }, 'העתקה'),
         navigator.share ? h('button.btn.secondary', { type: 'button', onclick: () => navigator.share({ title: state.business.name, url }).catch(() => {}) }, 'שיתוף') : null)),
     h('div.card.stack',
       h('h3', 'הודעה למענה האוטומטי בוואטסאפ ביזנס'),
-      h('p.quote', msg),
+      h('p.quote', msg.slice(0, -url.length), ltr(url)),
       h('button.btn.secondary', { type: 'button', onclick: () => copy(msg) }, 'העתקת ההודעה'),
       h('p.note', 'בוואטסאפ ביזנס: הגדרות ← כלים לעסקים ← הודעת פתיחה / מענה אוטומטי.')));
 }

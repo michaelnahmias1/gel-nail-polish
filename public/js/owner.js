@@ -330,9 +330,9 @@ export function manualBooking(params) {
     h('form.stack', { onsubmit: (e) => { e.preventDefault(); save(); }, novalidate: true },
       servicesCard,
       h('div.card.stack',
-        h('div.row',
-          h('div.grow', h('label.label', { for: 'date' }, 'תאריך'), date),
-          h('div.grow', h('label.label', { for: 'time' }, 'שעה'), time)),
+        // תאריך ושעה זה מתחת לזה: בצד לצד, ב-320 פיקסלים התאריך נחתך («11.2026»).
+        h('div.stack.tight', h('label.label', { for: 'date' }, 'תאריך'), date),
+        h('div.stack.tight', h('label.label', { for: 'time' }, 'שעה'), time),
         h('label.label', { for: 'dur' }, 'משך בדקות (אם שונה מהרגיל)'), durInput,
         h('p.note', 'בתור ידני מותר לחרוג משעות העבודה. רק חפיפה עם תור אחר נחסמת.')),
       h('div.card.stack',
@@ -515,7 +515,8 @@ async function hours() {
         inputs[i].start,
         h('span', 'עד'),
         inputs[i].end,
-        h('button.icon-btn', {
+        // טווח יחיד לא מסירים מכאן — סוגרים את היום בתיבת הסימון (וכך יש יותר מקום לשעות ב-320).
+        ranges.length < 2 ? null : h('button.icon-btn', {
           type: 'button',
           'aria-label': `הסרת הטווח ${r.start || ''}–${r.end || ''}, ${day}`,
           onclick: () => {

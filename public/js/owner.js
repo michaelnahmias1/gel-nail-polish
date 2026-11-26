@@ -684,13 +684,17 @@ async function services() {
           }
           if (dir < 0) cards[j].before(card); else cards[j].after(card);
           await loadBusiness();
-          b.focus();
         } finally {
           moving = false;
         }
       });
       // busy מדליק את הכפתור בסוף, ולכן מצב החצים נקבע רק אחריו (חץ בקצה נשאר כבוי).
-      b.onclick = async () => { await run(); updateArrows(); };
+      b.onclick = async () => {
+        await run();
+        updateArrows();
+        // הפוקוס נשאר על החץ (או על החץ השני, אם הכרטיס הגיע לקצה).
+        if (card.isConnected) (b.disabled ? card.querySelector(dir < 0 ? '.move-down' : '.move-up') : b).focus();
+      };
       return b;
     };
 

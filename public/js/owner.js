@@ -221,10 +221,18 @@ export async function appointment(_params, id) {
 
 // ───────────────────────── תור ידני ─────────────────────────
 
+// השעה העגולה הקרובה בשעון ישראל (14:20 → 15:00). אחרי 23:00 — אין.
+function nextRoundHour() {
+  const m = hhmmToMin(timeText(Date.now()));
+  const next = Math.ceil(m / 60) * 60;
+  return next < 24 * 60 ? minToHhmm(next) : '';
+}
+
 export function manualBooking(params) {
   const chosen = new Map(); // service_id → qty
   const services = state.services.filter((s) => s.active);
-  const totals = h('p.muted');
+  const totals = h('p.muted', { 'aria-live': 'polite' });
+  const servicesError = h('p.field-error', { id: 'services-error', role: 'alert', hidden: true });
   const durInput = h('input.field', { type: 'number', min: 5, max: 600, step: 5, inputmode: 'numeric', id: 'dur' });
 
   const recompute = () => {
@@ -237,37 +245,59 @@ export function manualBooking(params) {
     }
     durInput.placeholder = d ? String(d) : 'דקות';
     totals.textContent = chosen.size ? `${minutesText(Number(durInput.value) || d)} · ${money(p)}` : 'בחרי טיפול';
+    if (chosen.size) servicesError.hidden = true;
   };
   durInput.addEventListener('input', recompute);
 
   const serviceList = services.map((s) => {
     const qtyInput = s.price_type === 'per_unit'
-      ? h('input.field.qty-input', { type: 'number', min: 1, max: 20, value: 1, 'aria-label': 'כמות', inputmode: 'numeric' })
+      ? h('input.field.qty-input', { type: 'number', min: 1, max: 20, value: 1, 'aria-label': `כמות — ${s.name}`, inputmode: 'numeric' })
       : null;
-    const box = h('input', { type: 'checkbox', id: `s-${s.id}` });
+    const box = h('input', { type: 'checkbox', id: `s-${s.id}`, 'aria-describedby': 'services-error' });
     const sync = () => {
-      if (box.checked) chosen.set(s.id, s.price_type === 'per_unit' ? Math.max(1, Number(qtyInput.value) || 1) : 1);
+      if (box.checked) chosen.set(s.id, s.price_type === 'per_unit' ? Math.min(20, Math.max(1, Math.round(Number(qtyInput.value)) || 1)) : 1);
       else chosen.delete(s.id);
       recompute();
     };
     box.addEventListener('change', sync);
-    qtyInput?.addEventListener('input', sync);
+    // הקלדת כמות = בחירה בטיפול.
+    qtyInput?.addEventListener('input', () => { if (qtyInput.value !== '') box.checked = true; sync(); });
     return h('label.check-row', { for: `s-${s.id}` }, box,
       h('span.grow', s.name, h('span.muted', ` · ${minutesText(s.duration_min)} · ${money(s.price)}${s.price_type === 'per_unit' ? ' ליחידה' : ''}`)),
       qtyInput);
   });
 
-  const date = h('input.field', { type: 'date', id: 'date', value: params.d || todayKey(), min: todayKey() });
-  const time = h('input.field', { type: 'time', id: 'time', step: 300, value: '10:00' });
-  const name = h('input.field', { id: 'cname', maxlength: 60, autocomplete: 'off' });
-  const phone = h('input.field', { id: 'cphone', type: 'tel', inputmode: 'tel', autocomplete: 'off', placeholder: 'לא חובה' });
-  const btn = h('button.btn.primary', { type: 'submit' }, 'שמירת התור');
+  const initialDate = params.d && params.d >= todayKey() ? params.d : todayKey();
+  const date = h('input.field', { type: 'date', id: 'date', value: initialDate, min: todayKey(), required: true });
+  const defaultTime = (d) => (d === todayKey() ? nextRoundHour() : '');
+  const time = h('input.field', { type: 'time', id: 'time', step: 300, value: defaultTime(initialDate), required: true });
+  let timeTouched = false;
+  time.addEventListener('input', () => { timeTouched = true; });
+  date.addEventListener('change', () => { if (!timeTouched) time.value = defaultTime(date.value); });
+  const name = h('input.field', { id: 'cname', maxlength: 60, autocomplete: 'off', required: true });
+  const phone = h('input.field', {
+    id: 'cphone', type: 'tel', inputmode: 'tel', autocomplete: 'off', dir: 'ltr', 'aria-describedby': 'cphone-help',
+  });
+  const btn = h('button.btn.primary', { type: 'submit', disabled: !services.length }, 'שמירת התור');
 
   const save = busy(btn, async () => {
-    if (!chosen.size) return toast('בחרי טיפול', 'error');
-    if (!name.value.trim()) return toast('צריך שם של הלקוחה', 'error');
-    if (!date.value || !time.value) return toast('בחרי תאריך ושעה', 'error');
+    for (const el of [durInput, date, time, name, phone]) clearFieldError(el);
+    if (!chosen.size) {
+      servicesError.textContent = 'בחרי לפחות טיפול אחד';
+      servicesError.hidden = false;
+      servicesError.scrollIntoView({ block: 'center' });
+      serviceList[0]?.querySelector('input')?.focus();
+      return;
+    }
+    if (durInput.value !== '' && !(Number(durInput.value) >= 5 && Number(durInput.value) <= 600)) {
+      return fieldError(durInput, 'משך בין 5 ל-600 דקות, או להשאיר ריק');
+    }
+    if (!date.value) return fieldError(date, 'בחרי תאריך');
+    if (!time.value) return fieldError(time, 'בחרי שעה');
+    if (!name.value.trim()) return fieldError(name, 'צריך שם של הלקוחה');
+    if (phone.value.trim() && !isMobile(phone.value)) return fieldError(phone, 'מספר נייד לא תקין. למשל 050-1234567');
     const start = zonedToDate(date.value, time.value);
+    if (start < new Date() && !window.confirm('השעה כבר עברה — לשמור בכל זאת?')) return;
     const { error } = await state.sb.rpc('owner_book_appointment', {
       p_business: state.business.id,
       p_items: [...chosen].map(([service_id, qty]) => ({ service_id, qty })),
@@ -276,16 +306,29 @@ export function manualBooking(params) {
       p_phone: phone.value.trim() || null,
       p_duration_min: durInput.value ? Number(durInput.value) : null,
     });
-    if (error) return showError(error);
+    if (error) {
+      const msg = error.message || '';
+      if (/SLOT_TAKEN/.test(msg)) return fieldError(time, 'יש כבר תור בזמן הזה. בחרי שעה אחרת או משך קצר יותר.');
+      if (/INVALID_PHONE/.test(msg)) return fieldError(phone, errorText(error));
+      if (/INVALID_DURATION/.test(msg)) return fieldError(durInput, errorText(error));
+      if (/NAME_REQUIRED/.test(msg)) return fieldError(name, errorText(error));
+      return showError(error);
+    }
     toast('התור נשמר');
     go(`#/owner?d=${date.value}`);
   });
   recompute();
 
+  const servicesCard = services.length
+    ? h('div.card.stack', h('h3', 'טיפול'), serviceList, servicesError, totals)
+    : h('div.card.stack', h('h3', 'טיפול'),
+      h('p', 'אין טיפולים פעילים במחירון, ולכן אי אפשר לקבוע תור.'),
+      h('a.btn.secondary', { href: '#/owner/settings/services' }, 'למחירון'));
+
   mount(h('main.page',
-    header('תור ידני', { back: `#/owner?d=${params.d || ''}` }),
-    h('form.stack', { onsubmit: (e) => { e.preventDefault(); save(); } },
-      h('div.card.stack', h('h3', 'טיפול'), serviceList, totals),
+    header('תור ידני', { back: params.d ? `#/owner?d=${params.d}` : '#/owner' }),
+    h('form.stack', { onsubmit: (e) => { e.preventDefault(); save(); }, novalidate: true },
+      servicesCard,
       h('div.card.stack',
         h('div.row',
           h('div.grow', h('label.label', { for: 'date' }, 'תאריך'), date),
@@ -294,8 +337,8 @@ export function manualBooking(params) {
         h('p.note', 'בתור ידני מותר לחרוג משעות העבודה. רק חפיפה עם תור אחר נחסמת.')),
       h('div.card.stack',
         h('label.label', { for: 'cname' }, 'שם הלקוחה'), name,
-        h('label.label', { for: 'cphone' }, 'טלפון'), phone,
-        h('p.note', 'עם טלפון — הלקוחה תקבל אישור ותזכורת, והתור יופיע אצלה כשתתחבר.')),
+        h('label.label', { for: 'cphone' }, 'טלפון (לא חובה)'), phone,
+        h('p.note', { id: 'cphone-help' }, 'נייד בלבד, למשל ', ltr('050-1234567'), '. עם טלפון — הלקוחה תקבל אישור ותזכורת, והתור יופיע אצלה כשתתחבר.')),
       btn)));
 }
 

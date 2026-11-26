@@ -543,7 +543,7 @@ export async function chooseTime() {
     strip.replaceChildren(...days.map((k) => h('button.day', {
       type: 'button', 'aria-pressed': String(k === selected),
       class: k === selected ? 'on' : '',
-      onclick: () => { selected = k; d.day = k; saveDraft(); renderDays(); renderTimes(); },
+      onclick: () => { selected = k; d.day = k; saveDraft(); renderDays(); renderTimes(); strip.querySelector('.on')?.focus(); },
     }, h('span.day-name', dayLabel(k)), h('span.day-date', shortDate(`${k}T12:00:00Z`)))));
   };
   renderDays();

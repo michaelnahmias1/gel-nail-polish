@@ -157,6 +157,8 @@ export function trackNavigation() {
 // go('#/x', {replace: true}) — הפניה: מחליפה את הצעד הנוכחי, כך ש«חזרה» לא תחזיר לכאן.
 export function go(hash, { replace = false } = {}) {
   if (replace) {
+    // שואלים לפני שמחליפים את הכתובת — אחרת «להישאר» משאיר כתובת של מסך אחר.
+    if (!passLeaveGuard()) return;
     history.replaceState({ idx: navIdx }, '', hash);
     return router();
   }

@@ -350,7 +350,7 @@ export function manualBooking(params) {
       h('div.card.stack',
         h('label.label', { for: 'cname' }, 'שם הלקוחה'), name,
         h('label.label', { for: 'cphone' }, 'טלפון (לא חובה)'), phone,
-        h('p.note', { id: 'cphone-help' }, 'נייד בלבד, למשל ', ltr('050-1234567'), '. עם טלפון — הלקוחה תקבל אישור ותזכורת, והתור יופיע אצלה כשתתחבר.')),
+        h('p.note', { id: 'cphone-help' }, 'נייד בלבד, למשל ', ltr('050-1234567'), state.cfg?.whatsapp ? '. עם טלפון — הלקוחה תקבל אישור ותזכורת, והתור יופיע אצלה כשתתחבר.' : '. עם טלפון — התור יופיע אצלה כשתתחבר.')),
       btn)));
 }
 

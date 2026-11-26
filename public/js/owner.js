@@ -14,7 +14,8 @@ const minutesBetween = (a, b) => Math.round((new Date(b) - new Date(a)) / 60000)
 const ltr = (text) => h('span.ltr', { dir: 'ltr' }, text);
 // אותו דבר לטקסט רגיל (חלונות confirm): בידוד LRI…PDI.
 const ltrPlain = (text) => `⁦${text}⁩`;
-const range = (a, b) => `${a}–${b}`;
+// \u2060 (מחבר מילים): הטווח לא נשבר לשתי שורות באמצע.
+const range = (a, b) => `${a}\u2060–\u2060${b}`;
 
 // «תור אחד» / «3 תורים».
 const countText = (n, one, many) => (n === 1 ? one : `${n} ${many}`);

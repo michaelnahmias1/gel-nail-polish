@@ -9,85 +9,212 @@ import { state, loadProfile, logout, go, goBack, goFrom, isOwner, afterLoginTarg
 
 // ───────────────────────── כניסה ─────────────────────────
 
-export function login() {
-  if (state.profile) return go('#/');
-  let phone = '';
+const digitsOf = (s) => String(s || '').replace(/\D/g, '');
+// אותן צורות שהמסד מקבל: 05XXXXXXXX, 5XXXXXXXX, 9725XXXXXXXX (גם עם +, רווחים ומקפים).
+const looksLikeMobile = (d) => /^(05\d{8}|5\d{8}|9725\d{8})$/.test(d);
+const RESEND_SEC = 30;
 
+// לאן ממשיכים אחרי כניסה: למסך השם אם עוד אין שם, אחרת למסך ששמרנו (או לבית).
+function continueAfterLogin() {
+  if (!state.profile?.name) return go('#/name', { replace: true });
+  return go(afterLoginTarget({ consume: true }), { replace: true });
+}
+
+export function login() {
+  if (state.profile) return continueAfterLogin();
+  let phone = '';        // המספר שאליו נשלח הקוד האחרון
+  let lastAuto = '';     // הקוד האחרון שנשלח אוטומטית, כדי לא לשלוח אותו פעמיים
+  let tick = null;
+
+  // ───── שלב 1: מספר טלפון ─────
   const phoneInput = h('input.field', {
-    type: 'tel', inputmode: 'tel', autocomplete: 'tel', placeholder: '050-0000000',
-    'aria-label': 'מספר טלפון', maxlength: 15,
+    id: 'phone', type: 'tel', inputmode: 'tel', autocomplete: 'tel',
+    placeholder: '050-0000000', maxlength: 20,
   });
   const sendBtn = h('button.btn.primary', { type: 'submit' }, 'שליחת קוד');
-  const step1 = h('form.stack', {
+  const phoneStep = h('form.stack', {
+    novalidate: true,
     onsubmit: (e) => { e.preventDefault(); start(); },
   },
   h('label.label', { for: 'phone' }, 'מספר הטלפון שלך'),
-  Object.assign(phoneInput, { id: 'phone' }),
+  phoneInput,
   sendBtn);
 
+  // שולח קוד למספר. מחזיר {r} בהצלחה, או {message} עם הסבר למה לא.
+  const requestCode = async (p) => {
+    const r = await api('start', { phone: p });
+    if (r.status === 'ok') return { r };
+    if (r.status === 'invalid_phone') return { message: 'המספר לא נראה כמו נייד ישראלי. בדקי ונסי שוב.' };
+    if (r.status === 'rate_limited') return { message: 'נשלחו יותר מדי קודים למספר הזה. נסי שוב מאוחר יותר.' };
+    return { message: 'לא הצלחנו לשלוח קוד כרגע. נסי שוב מאוחר יותר.' };
+  };
+
   const start = busy(sendBtn, async () => {
-    phone = phoneInput.value.trim();
-    if (phone.replace(/\D/g, '').length < 9) return toast('צריך מספר נייד מלא', 'error');
+    const typed = phoneInput.value.trim();
+    const d = digitsOf(typed);
+    if (d.length < 9) return fieldError(phoneInput, 'צריך מספר נייד מלא, למשל 050-1234567');
+    if (!looksLikeMobile(d)) return fieldError(phoneInput, 'המספר לא נראה כמו נייד ישראלי. בדקי ונסי שוב.');
     try {
-      const r = await api('start', { phone });
-      if (r.status === 'invalid_phone') return toast('המספר לא נראה כמו נייד ישראלי', 'error');
-      if (r.status === 'rate_limited') return toast('נשלחו יותר מדי קודים. נסי שוב בעוד רבע שעה.', 'error');
-      if (r.status !== 'ok') return toast('לא הצלחנו לשלוח קוד כרגע. נסי שוב מאוחר יותר.', 'error');
+      const { r, message } = await requestCode(typed);
+      if (message) return fieldError(phoneInput, message);
+      phone = typed;
       showCodeStep(r);
     } catch (e) {
       showError(e);
     }
   });
 
-  const showCodeStep = (r) => {
-    const codeInput = h('input.field.code', {
-      id: 'code', type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code',
-      maxlength: 6, placeholder: '••••••', 'aria-label': 'קוד',
-    });
-    const enterBtn = h('button.btn.primary', { type: 'submit' }, 'כניסה');
-    const finish = busy(enterBtn, async () => {
-      const code = codeInput.value.replace(/\D/g, '');
-      if (code.length !== 6) return toast('הקוד הוא 6 ספרות', 'error');
-      try {
-        const res = await api('finish', { phone, code });
-        if (res.status !== 'ok') {
-          codeInput.select();
-          return toast('הקוד לא נכון או שפג תוקפו', 'error');
-        }
-        const { error } = await state.sb.auth.setSession(res.session);
-        if (error) throw error;
-        await loadProfile();
-        go(state.profile?.name ? '#/' : '#/name');
-      } catch (e) {
-        showError(e);
-      }
-    });
-    codeInput.addEventListener('input', () => { if (codeInput.value.replace(/\D/g, '').length === 6) finish(); });
+  // ───── שלב 2: הקוד ─────
+  const codeInput = h('input.field.code', {
+    id: 'code', type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code',
+    maxlength: 12, placeholder: '••••••',
+  });
+  const enterBtn = h('button.btn.primary', { type: 'submit' }, 'כניסה');
+  const sentText = h('p.lead');
+  const demoBox = h('div');
+  const otherBtn = h('button.link', { type: 'button', onclick: () => backToPhone() }, 'מספר אחר');
+  const resend = h('button.link', { type: 'button', disabled: true }, 'שליחה חוזרת');
+  const codeStep = h('form.stack', {
+    hidden: true, novalidate: true,
+    onsubmit: (e) => { e.preventDefault(); finish(); },
+  },
+  sentText,
+  demoBox,
+  h('label.label', { for: 'code' }, 'הקוד שקיבלת'),
+  codeInput,
+  enterBtn,
+  h('div.row.spread', otherBtn, resend));
 
-    const resend = h('button.link', { type: 'button', disabled: true }, 'שליחה חוזרת');
-    let left = 30;
-    const tick = setInterval(() => {
+  // מה כתוב מעל הקוד: לאן נשלח, ובמצב בדיקה — הקוד עצמו.
+  const showSent = (r) => {
+    sentText.replaceChildren(
+      r.channel === 'whatsapp' ? 'שלחנו קוד בוואטסאפ למספר ' : 'הקוד למספר ',
+      ltr(phoneDisplay(phone)));
+    demoBox.replaceChildren(r.demoCode
+      ? h('div.demo', h('strong', 'מצב בדיקה'), ' — הוואטסאפ עוד לא מחובר, אז הקוד מוצג כאן: ',
+        h('bdi.demo-code', r.demoCode))
+      : '');
+  };
+
+  const stopCountdown = () => { clearInterval(tick); tick = null; };
+  const countdownText = (left) => `שליחה חוזרת (0:${String(left).padStart(2, '0')})`;
+  const startCountdown = () => {
+    stopCountdown();
+    let left = RESEND_SEC;
+    resend.disabled = true;
+    resend.textContent = countdownText(left);
+    tick = setInterval(() => {
+      // יצאנו מהמסך — אין מה לספור.
+      if (!resend.isConnected) return stopCountdown();
       left--;
-      resend.textContent = left > 0 ? `שליחה חוזרת (${left})` : 'שליחה חוזרת';
-      if (left <= 0) { clearInterval(tick); resend.disabled = false; }
+      if (left > 0) {
+        resend.textContent = countdownText(left);
+      } else {
+        stopCountdown();
+        resend.textContent = 'שליחה חוזרת';
+        resend.disabled = false;
+      }
     }, 1000);
-    resend.onclick = () => { clearInterval(tick); phoneInput.value = phone; start(); };
+  };
 
-    card.replaceChildren(
-      h('form.stack', { onsubmit: (e) => { e.preventDefault(); finish(); } },
-        h('p.lead', r.channel === 'whatsapp' ? `שלחנו קוד בוואטסאפ ל-${phoneDisplay(phone)}` : `הקוד ל-${phoneDisplay(phone)}`),
-        r.demoCode ? h('div.demo', h('strong', 'מצב בדיקה'), ' — הוואטסאפ עוד לא מחובר, אז הקוד מוצג כאן: ',
-          h('bdi.demo-code', r.demoCode)) : null,
-        codeInput,
-        enterBtn,
-        h('div.row.spread',
-          h('button.link', { type: 'button', onclick: () => location.reload() }, 'מספר אחר'),
-          resend)));
+  const resetCode = () => {
+    codeInput.value = '';
+    lastAuto = '';
+    clearFieldError(codeInput);
+  };
+
+  const showCodeStep = (r) => {
+    showSent(r);
+    resetCode();
+    phoneStep.hidden = true;
+    codeStep.hidden = false;
+    startCountdown();
     codeInput.focus();
   };
 
-  const card = h('div.card', step1);
-  mount(h('main.page.login',
+  // «מספר אחר» — חוזרים לשלב הטלפון בלי לטעון את הדף מחדש; המספר נשאר בשדה.
+  const backToPhone = () => {
+    stopCountdown();
+    resetCode();
+    codeStep.hidden = true;
+    phoneStep.hidden = false;
+    phoneInput.focus();
+    phoneInput.select();
+  };
+
+  // שליחה חוזרת: אותה בקשה, אבל נשארים בשלב הקוד.
+  const doResend = busy(resend, async () => {
+    resend.textContent = 'שולחים…';
+    try {
+      const { r, message } = await requestCode(phone);
+      if (message) {
+        toast(message, 'error');
+        return false;
+      }
+      showSent(r);
+      resetCode();
+      toast('שלחנו קוד חדש');
+      codeInput.focus();
+      return true;
+    } catch (e) {
+      showError(e);
+      return false;
+    }
+  });
+  resend.addEventListener('click', async () => {
+    if (resend.disabled) return;
+    const ok = await doResend();
+    if (!resend.isConnected) return;
+    if (ok) startCountdown();
+    else resend.textContent = 'שליחה חוזרת';
+  });
+
+  const finish = busy(enterBtn, async () => {
+    const code = digitsOf(codeInput.value);
+    if (code.length !== 6) return fieldError(codeInput, 'הקוד הוא 6 ספרות');
+    try {
+      const res = await api('finish', { phone, code });
+      if (res.status !== 'ok') {
+        fieldError(codeInput, 'הקוד לא נכון או שפג תוקפו. בדקי ונסי שוב, או בקשי קוד חדש.');
+        codeInput.select();
+        return;
+      }
+      const { error } = await state.sb.auth.setSession(res.session);
+      if (error) throw error;
+      await loadProfile();
+      stopCountdown();
+      continueAfterLogin();
+    } catch (e) {
+      showError(e);
+    }
+  });
+
+  // כשיש 6 ספרות — נכנסים לבד (פעם אחת לכל קוד).
+  const autoSubmit = () => {
+    const code = digitsOf(codeInput.value);
+    if (code.length !== 6 || code === lastAuto || enterBtn.disabled) return;
+    lastAuto = code;
+    finish();
+  };
+  // מקבלים גם «123 456» או «123-456»: משאירים רק ספרות.
+  codeInput.addEventListener('input', () => {
+    const d = digitsOf(codeInput.value).slice(0, 6);
+    if (codeInput.value !== d) codeInput.value = d;
+    autoSubmit();
+  });
+  codeInput.addEventListener('paste', (e) => {
+    // הודבק קוד שלם (גם עם רווח/מקף או טקסט סביבו) — שמים בשדה רק את 6 הספרות.
+    // הדבקה של חלק מהקוד עוברת כרגיל, וה-input למעלה ינקה אותה.
+    const d = digitsOf(e.clipboardData?.getData('text'));
+    if (d.length < 6) return;
+    e.preventDefault();
+    codeInput.value = d.slice(0, 6);
+    clearFieldError(codeInput);
+    autoSubmit();
+  });
+
+  const card = h('div.card', phoneStep, codeStep);
+  mount(h('main.page.login', { 'data-title': 'כניסה' },
     h('div.brand', h('img.logo', { src: '/icons/icon.svg', alt: '' }), h('h1', state.business.name)),
     h('p.lead.center-text', 'קביעת תור בכמה לחיצות'),
     card,
@@ -106,21 +233,39 @@ async function api(action, body) {
 }
 
 export function askName() {
-  if (state.profile?.name) return go('#/');
-  const input = h('input.field', { id: 'name', autocomplete: 'given-name', maxlength: 60, placeholder: 'שם' });
+  if (state.profile?.name) return go(afterLoginTarget({ consume: true }), { replace: true });
+  const phone = state.profile?.phone;
+  const input = h('input.field', {
+    id: 'name', autocomplete: 'given-name', maxlength: 60, placeholder: 'שם',
+    'aria-describedby': phone ? 'name-hint name-phone' : 'name-hint',
+  });
   const btn = h('button.btn.primary', { type: 'submit' }, 'המשך');
   const save = busy(btn, async () => {
     const name = input.value.trim();
-    if (!name) return toast('צריך למלא שם', 'error');
+    if (!name) return fieldError(input, 'צריך למלא שם');
     const { data, error } = await state.sb.rpc('set_my_name', { p_name: name });
     if (error) return showError(error);
     state.profile = data;
-    go('#/');
+    go(afterLoginTarget({ consume: true }), { replace: true });
   });
-  mount(h('main.page.login',
-    h('div.card', h('form.stack', { onsubmit: (e) => { e.preventDefault(); save(); } },
+
+  const notMe = h('button.link', { type: 'button' }, 'זה לא המספר שלי');
+  notMe.addEventListener('click', busy(notMe, async () => {
+    try {
+      await logout();
+    } catch (e) {
+      showError(e);
+    }
+  }));
+
+  mount(h('main.page.login', { 'data-title': 'השם שלך' },
+    h('div.brand', h('img.logo', { src: '/icons/icon.svg', alt: '' }), h('h1', state.business.name)),
+    h('div.card', h('form.stack', { novalidate: true, onsubmit: (e) => { e.preventDefault(); save(); } },
       h('label.label', { for: 'name' }, 'איך קוראים לך?'),
-      input, btn))));
+      h('p.muted', { id: 'name-hint' }, 'השם יופיע בתור שלך, כדי שנדע מי מגיעה.'),
+      phone ? h('p.muted', { id: 'name-phone' }, 'נכנסת עם המספר ', ltr(phoneDisplay(phone))) : null,
+      input, btn)),
+    h('p.center-text', notMe)));
   input.focus();
 }
 

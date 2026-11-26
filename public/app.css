@@ -20,7 +20,7 @@
    --text      על כרטיס 15.2 · על רקע 14.2
    --muted     על כרטיס 5.93 · על רקע 5.53 · על ורוד בהיר 4.85 · על אפור-ורדרד 5.15
    --primary   על כרטיס 6.04 · על רקע 5.64 · על ורוד בהיר 4.95 · לבן עליו 6.04
-   --control-line (מסגרת שדות, שעות, ימים) על כרטיס 3.83 · על רקע 3.57
+   --control-line (מסגרת שדות, שעות, ימים) על כרטיס 3.83 · על רקע 3.57 · על --surface-muted 3.33
    --primary על --primary-soft-strong (מצב לחוץ / סימון) 4.60
    --warn-ink על --warn-soft 6.43 · --warn-line על כרטיס 4.03
    --danger    על כרטיס 6.54 · על --danger-soft 5.70 · לבן עליו 6.54 */
@@ -39,6 +39,7 @@
   --primary-soft-strong: #f2dbe1; /* מצב לחוץ של כפתור משני / סימון טקסט */
   --danger: #b3261e;
   --danger-soft: #fbeceb;
+  --danger-soft-strong: #f6d9d7; /* מצב לחוץ של כפתור ביטול — 4.93 */
   --ok: #2f7d4f;
   --warn-ink: #7a5200;
   --warn-line: #a8750f;      /* מסגרת/נקודה של אזהרה — 3:1 לפחות */
@@ -169,6 +170,7 @@ a { color: inherit; }
 .btn.ghost { background: transparent; color: var(--primary); min-height: var(--tap); padding: 8px 10px; }
 .btn.ghost:active { background: var(--primary-soft); }
 .btn.danger { background: var(--danger-soft); color: var(--danger); }
+.btn.danger:active { background: var(--danger-soft-strong); }
 .btn.huge { min-height: 72px; font-size: var(--fs-lg); border-radius: var(--r-lg); }
 .btn.small { min-height: var(--tap); padding: 8px 18px; font-size: var(--fs-sm); }
 .btn:disabled { opacity: .55; pointer-events: none; }
@@ -249,6 +251,8 @@ a { color: inherit; }
 .field[aria-invalid="true"] { border-color: var(--danger); }
 .field[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
 .field-error { color: var(--danger); font-size: var(--fs-sm); font-weight: 500; margin-top: 4px; }
+.stack > .field-error { margin-top: -8px; }
+.stack.tight > .field-error { margin-top: -4px; }
 input[type="tel"].field, input[type="number"].field, input[type="time"].field, input[type="date"].field { direction: ltr; text-align: right; }
 .field.code { font-size: var(--fs-xl); letter-spacing: .4em; text-align: center; direction: ltr; }
 .qty-input { width: 84px; flex: none; min-height: var(--tap); }
@@ -286,6 +290,7 @@ select.field { appearance: auto; }
   flex: none;
 }
 .btn.unsaved { box-shadow: 0 0 0 3px var(--warn-line); }
+.btn.unsaved::before { background: currentColor; }
 
 /* ───────── כותרת עליונה ───────── */
 .top { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-height: 52px; }
@@ -383,6 +388,8 @@ select.field { appearance: auto; }
   cursor: pointer;
 }
 .day:active:not(.on) { background: var(--primary-soft); }
+.day { transition: transform .08s ease, background-color .12s; }
+.day:active { transform: scale(.96); }
 .day.on { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); }
 .day-name { font-weight: 600; font-size: var(--fs-sm); }
 .day-date { font-size: var(--fs-sm); color: var(--muted); }

@@ -134,7 +134,7 @@ async function renderCalendar(params, { silent }) {
   }
 
   const y = window.scrollY;
-  mount(h('main.page.owner', { 'data-view': 'calendar' },
+  mount(h('main.page.owner', { 'data-view': 'calendar', 'data-title': 'יומן' },
     ownerTop(),
     pushBanner(),
     nav,

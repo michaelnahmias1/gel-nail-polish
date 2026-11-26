@@ -40,7 +40,7 @@ export function mount(...nodes) {
   window.scrollTo(0, 0);
   const heading = root.querySelector('h1');
   const title = nodes[0]?.dataset?.title || heading?.textContent?.trim();
-  document.title = title && title !== appName ? `${title} · ${appName}` : appName || title || document.title;
+  document.title = title && appName && title !== appName ? `${title} · ${appName}` : title || appName || document.title;
   const active = document.activeElement;
   if (heading && (hadFocus || !active || active === document.body || !document.contains(active))) {
     // הכותרת אינה כפתור — מקבלת פוקוס רק כדי שקורא מסך יתחיל ממנה, בלי מסגרת פוקוס.

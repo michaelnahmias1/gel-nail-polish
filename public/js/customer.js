@@ -1,10 +1,11 @@
 // מסכי הלקוחה: כניסה, שם, בית, קביעת תור (טיפול → יום ושעה → אישור), התורים שלי.
 import {
-  h, mount, header, spinner, toast, showError, errorText, busy,
-  dateKey, timeText, shortDate, longDate, dayLabel, todayKey, addDays,
+  h, mount, header, spinner, toast, showError, errorText, busy, fieldError, clearFieldError, ltr,
+  dateKey, timeText, weekdayText, shortDate, longDate, dayLabel, todayKey, addDays,
   money, minutesText, itemsText, waLink, phoneDisplay,
 } from './ui.js';
-import { state, loadProfile, logout, go, isOwner } from './app.js';
+import { icon } from './icons.js';
+import { state, loadProfile, logout, go, goBack, goFrom, isOwner, afterLoginTarget } from './app.js';
 
 // ───────────────────────── כניסה ─────────────────────────
 
@@ -133,12 +134,20 @@ async function myUpcoming() {
   return data[0] || null;
 }
 
+// «קבעי תור» מתחיל תמיד בחירה חדשה, ומציג מיד מסך טעינה.
+function startBooking(e) {
+  e?.preventDefault();
+  resetDraft();
+  mount(h('main.page', header('איזה טיפול?', { back: '#/' }), h('div.center', spinner())));
+  go('#/book');
+}
+
 export async function home() {
   mount(h('main.page.center', spinner()));
   const next = await myUpcoming();
   const first = state.profile.name.split(' ')[0];
 
-  mount(h('main.page',
+  mount(h('main.page', { 'data-title': 'דף הבית' },
     h('div.hello', h('img.logo.small', { src: '/icons/icon.svg', alt: '' }),
       h('div', h('p.muted', state.business.name), h('h1', `היי ${first}`))),
     next
@@ -147,35 +156,66 @@ export async function home() {
         appointmentCard(next),
         h('a.btn.secondary', { href: '#/mine' }, 'פרטים וביטול'))
       : h('section.stack',
-        h('a.btn.primary.huge', { href: '#/book', onclick: () => { state.draft = null; } }, 'קבעי תור')),
+        h('a.btn.primary.huge', { href: '#/book', onclick: startBooking }, 'קבעי תור')),
     footer()));
 }
 
 function footer() {
   const s = state.settings;
   return h('footer.foot',
-    s.address ? h('p.muted', '📍 ', s.address) : null,
-    s.contact_phone ? h('a.link', { href: waLink(s.contact_phone), target: '_blank', rel: 'noopener' }, 'שאלה? כתבי לנו בוואטסאפ') : null,
+    s.address ? h('p.muted', icon('location'), ' ', s.address) : null,
+    s.contact_phone
+      ? h('a.link', { href: waLink(s.contact_phone, 'היי, יש לי שאלה'), target: '_blank', rel: 'noopener' },
+        icon('whatsapp'), ' שאלה? כתבי לנו בוואטסאפ')
+      : null,
     h('a.link', { href: '#/mine' }, 'התורים שלי'),
     h('button.link.muted', { type: 'button', onclick: logout }, 'התנתקות'));
 }
 
 function appointmentCard(a) {
   return h('div.card.appt',
-    h('div.appt-when', h('strong', `${dayLabel(dateKey(a.start_at))} · ${longDate(a.start_at)}`), h('span.big-time', timeText(a.start_at))),
+    h('div.appt-when', h('strong', `${dayLabel(dateKey(a.start_at))} · ${longDate(a.start_at)}`), h('span.big-time', ltr(timeText(a.start_at)))),
     h('div.appt-what', itemsText(a.items)),
     h('div.muted', `${minutesText(Math.round((new Date(a.end_at) - new Date(a.start_at)) / 60000))} · ${money(a.total_price)}`));
 }
 
-// ───────────────────────── קביעת תור ─────────────────────────
+// «ביום שלישי, 5 בינואר, בשעה 10:30»
+const whenText = (d) => `ב${weekdayText(d)}, ${longDate(d)}, בשעה ${timeText(d)}`;
 
+function contactLink(text, label = 'צרי קשר') {
+  const phone = state.settings.contact_phone;
+  if (!phone) return null;
+  return h('a.btn.secondary', { href: waLink(phone, text), target: '_blank', rel: 'noopener' }, icon('whatsapp'), ` ${label}`);
+}
+
+// ───────────────────────── קביעת תור ─────────────────────────
+// הבחירה (טיפולים, יום, שעה) נשמרת ב-sessionStorage עד שהתור נקבע, כך ש«חזרה» או רענון לא מוחקים אותה.
+
+const DRAFT_KEY = 'gel-draft';
 const activeServices = () => state.services.filter((s) => s.active);
 const serviceById = (id) => state.services.find((s) => s.id === id);
+
+function draft() {
+  if (!state.draft) {
+    try { state.draft = JSON.parse(sessionStorage.getItem(DRAFT_KEY)); } catch { state.draft = null; }
+  }
+  if (!state.draft || !Array.isArray(state.draft.items)) state.draft = { items: [] };
+  // טיפול שהוסר מהמחירון בינתיים — יוצא מהבחירה.
+  state.draft.items = state.draft.items.filter((i) => serviceById(i.service_id)?.active);
+  return state.draft;
+}
+function saveDraft() {
+  try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(state.draft)); } catch { /* מצב פרטי */ }
+}
+function resetDraft() {
+  state.draft = { items: [] };
+  try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* מצב פרטי */ }
+}
 
 function draftTotals() {
   let duration = 0;
   let price = 0;
-  for (const it of state.draft?.items || []) {
+  for (const it of draft().items) {
     const s = serviceById(it.service_id);
     if (!s) continue;
     const qty = s.price_type === 'per_unit' ? it.qty || 1 : 1;
@@ -185,72 +225,118 @@ function draftTotals() {
   return { duration, price };
 }
 
+const itemText = (s, qty) => (s.price_type === 'per_unit' && qty > 1 ? `${s.name} ×${qty}` : s.name);
+
 function draftText() {
-  return (state.draft?.items || []).map((it) => {
+  return draft().items.map((it) => {
     const s = serviceById(it.service_id);
-    return s ? (s.price_type === 'per_unit' && it.qty > 1 ? `${s.name} ×${it.qty}` : s.name) : '';
+    return s ? itemText(s, it.qty) : '';
   }).join(' + ');
 }
 
 export async function chooseServices(params) {
+  const adding = params.add === '1';
+  const title = () => (draft().items.length ? 'הוספת טיפול' : 'איזה טיפול?');
+  const back = adding ? '#/book/time' : '#/';
+  mount(h('main.page', header(title(), { back }), h('div.center', spinner())));
   if (!isOwner() && await myUpcoming()) {
-    toast('כבר יש לך תור עתידי', 'error');
-    return go('#/mine');
+    toast('כבר יש לך תור עתידי. אפשר לבטל אותו כאן ולקבוע חדש.');
+    return go('#/mine', { replace: true });
   }
-  const adding = params.add === '1' && state.draft?.items?.length;
-  if (!adding) state.draft = { items: [] };
+  const d = draft();
+  const services = activeServices();
 
-  const pick = (s, qty) => {
-    const items = state.draft.items.filter((i) => i.service_id !== s.id);
-    items.push({ service_id: s.id, qty });
-    state.draft.items = items;
-    go('#/book/time');
+  if (!services.length) {
+    mount(h('main.page', header('איזה טיפול?', { back: '#/' }),
+      h('div.card.stack',
+        h('p.lead', 'אין כרגע טיפולים שאפשר לקבוע באפליקציה.'),
+        h('p.muted', 'אפשר לכתוב לנו ונמצא לך תור.'),
+        contactLink('היי, רציתי לקבוע תור', 'כתבי לנו בוואטסאפ'),
+        h('button.btn.ghost', { type: 'button', onclick: () => goBack('#/') }, 'חזרה לדף הבית'))));
+    return;
+  }
+
+  const toTime = () => { saveDraft(); go('#/book/time'); };
+  const add = (s, qty) => {
+    d.items = d.items.filter((i) => i.service_id !== s.id);
+    d.items.push({ service_id: s.id, qty });
+    toTime();
+  };
+  const remove = (s) => {
+    d.items = d.items.filter((i) => i.service_id !== s.id);
+    saveDraft();
+    render(s.id);
   };
 
-  const list = activeServices().map((s) => {
-    const already = state.draft.items.some((i) => i.service_id === s.id);
+  const list = h('div.choices');
+  const chosenLine = h('p.muted');
+  const next = h('button.btn.primary', { type: 'button', onclick: toTime }, 'המשך לבחירת שעה');
+  const heading = h('h1');
+
+  const serviceRow = (s) => {
+    const item = d.items.find((i) => i.service_id === s.id);
+    if (item) {
+      return h('div.choice.selected', { 'data-id': s.id },
+        h('span.choice-name', itemText(s, item.qty)),
+        h('span.choice-meta', h('span.chosen-mark', icon('check'), ' נבחר'),
+          h('button.link', { type: 'button', 'aria-label': `הסרת ${s.name}`, onclick: () => remove(s) }, 'הסרה')));
+    }
     if (s.price_type === 'per_unit') {
       let qty = 1;
-      const count = h('span.qty-n', '1');
+      const count = h('span.qty-n', { 'aria-live': 'polite' }, '1');
       const label = h('span.muted');
       const refresh = () => {
         count.textContent = qty;
         label.textContent = `${minutesText(s.duration_min * qty)} · ${money(s.price * qty)}`;
       };
       refresh();
-      const panel = h('div.qty-panel', { hidden: true },
+      const panel = h('div.qty-panel', { hidden: true, id: `qty-${s.id}` },
         h('p.muted', 'כמה ציפורניים?'),
         h('div.qty',
           h('button.round', { type: 'button', 'aria-label': 'פחות', onclick: () => { qty = Math.max(1, qty - 1); refresh(); } }, '−'),
           count,
           h('button.round', { type: 'button', 'aria-label': 'יותר', onclick: () => { qty = Math.min(10, qty + 1); refresh(); } }, '+')),
         label,
-        h('button.btn.primary', { type: 'button', onclick: () => pick(s, qty) }, 'המשך'));
-      return h('div.choice-wrap',
-        h('button.choice', { type: 'button', disabled: already, onclick: () => { panel.hidden = !panel.hidden; } },
-          h('span.choice-name', s.name),
-          h('span.choice-meta', `${money(s.price)} ליחידה`)),
-        panel);
+        h('button.btn.primary', { type: 'button', onclick: () => add(s, qty) }, 'הוספה'));
+      const toggle = h('button.choice', {
+        type: 'button', 'data-id': s.id, 'aria-expanded': 'false', 'aria-controls': panel.id,
+        onclick: () => { panel.hidden = !panel.hidden; toggle.setAttribute('aria-expanded', String(!panel.hidden)); },
+      },
+      h('span.choice-name', s.name),
+      h('span.choice-meta', `${money(s.price)} ליחידה`));
+      return h('div.choice-wrap', toggle, panel);
     }
-    return h('button.choice', { type: 'button', disabled: already, onclick: () => pick(s, 1) },
+    return h('button.choice', { type: 'button', 'data-id': s.id, onclick: () => add(s, 1) },
       h('span.choice-name', s.name),
       h('span.choice-meta', `${minutesText(s.duration_min)} · ${money(s.price)}`));
-  });
+  };
 
-  mount(h('main.page',
-    header(adding ? 'הוספת טיפול' : 'איזה טיפול?', { back: adding ? '#/book/time' : '#/' }),
-    adding ? h('p.muted', `כבר בחרת: ${draftText()}`) : null,
-    h('div.choices', list.length ? list : h('p.muted', 'אין כרגע טיפולים זמינים.'))));
+  const render = (focusId) => {
+    heading.textContent = title();
+    list.replaceChildren(...services.map(serviceRow));
+    chosenLine.hidden = !d.items.length;
+    chosenLine.textContent = d.items.length ? `בחרת: ${draftText()}. אפשר להוסיף עוד טיפול או להמשיך.` : '';
+    next.hidden = !d.items.length;
+    if (focusId) list.querySelector(`button.choice[data-id="${focusId}"]`)?.focus();
+  };
+  render();
+
+  const top = header('', { back });
+  top.querySelector('h1').replaceWith(heading);
+  mount(h('main.page', top, chosenLine, list, next));
 }
 
+const PARTS = [['בוקר', 0], ['צהריים', 12], ['ערב', 17]];
+
 export async function chooseTime() {
-  if (!state.draft?.items?.length) return go('#/book');
+  const d = draft();
+  if (!d.items.length) return go('#/book', { replace: true });
   mount(h('main.page', header('מתי נוח לך?', { back: '#/book' }), h('div.center', spinner())));
 
   const from = todayKey();
   const to = addDays(from, state.settings.booking_window_days);
   const { data, error } = await state.sb.rpc('get_free_slots', {
-    p_business: state.business.id, p_items: state.draft.items, p_from: from, p_to: to,
+    p_business: state.business.id, p_items: d.items, p_from: from, p_to: to,
   });
   if (error) throw error;
 
@@ -265,57 +351,96 @@ export async function chooseTime() {
 
   const summary = h('div.summary',
     h('div', h('strong', draftText()), h('div.muted', `${minutesText(duration)} · ${money(price)}`)),
-    h('a.link', { href: '#/book?add=1' }, '+ עוד טיפול'));
+    h('a.btn.secondary', { href: '#/book?add=1' }, icon('plus'), ' עוד טיפול'));
 
   if (!days.length) {
     mount(h('main.page', header('מתי נוח לך?', { back: '#/book' }), summary,
       h('div.card.stack',
         h('p.lead', 'אין שעות פנויות בתקופה הקרובה.'),
-        state.settings.contact_phone
-          ? h('a.btn.secondary', { href: waLink(state.settings.contact_phone, 'היי, רציתי לקבוע תור'), target: '_blank', rel: 'noopener' }, 'כתבי לנו בוואטסאפ')
-          : null)));
+        d.items.length > 1 ? h('p.muted', 'אפשר לנסות עם פחות טיפולים — לתור קצר יותר יש יותר שעות פנויות.') : null,
+        h('button.btn.primary', { type: 'button', onclick: () => goBack('#/book') }, 'חזרה לבחירת טיפול'),
+        contactLink('היי, רציתי לקבוע תור ולא מצאתי שעה פנויה', 'כתבי לנו בוואטסאפ'))));
     return;
   }
 
-  let selected = state.draft.day && byDay.has(state.draft.day) ? state.draft.day : days[0];
-  const strip = h('div.days', { role: 'tablist' });
-  const times = h('div.times');
+  let selected = d.day && byDay.has(d.day) ? d.day : days[0];
+  const strip = h('div.days', { role: 'group', 'aria-label': 'בחירת יום' });
+  const times = h('div.slot-groups', { 'aria-live': 'polite' });
 
-  const render = () => {
-    strip.replaceChildren(...days.map((k) => h('button.day', {
-      type: 'button', role: 'tab', 'aria-selected': String(k === selected),
-      class: k === selected ? 'on' : '',
-      onclick: () => { selected = k; state.draft.day = k; render(); },
-    }, h('span.day-name', dayLabel(k)), h('span.day-date', shortDate(`${k}T12:00:00Z`)))));
-    times.replaceChildren(...byDay.get(selected).map((t) => h('button.chip', {
-      type: 'button',
-      onclick: () => { state.draft.start = t; state.draft.day = selected; go('#/book/confirm'); },
-    }, timeText(t))));
-    strip.querySelector('.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
+  const renderTimes = () => {
+    const slots = byDay.get(selected);
+    const groups = PARTS.map(([name, fromHour], i) => {
+      const toHour = PARTS[i + 1]?.[1] ?? 24;
+      const inPart = slots.filter((t) => {
+        const hour = Number(timeText(t).slice(0, 2));
+        return hour >= fromHour && hour < toHour;
+      });
+      if (!inPart.length) return null;
+      return h('section.slot-group',
+        h('h2.slot-group-title', name),
+        h('div.times', inPart.map((t) => h('button.chip', {
+          type: 'button',
+          'aria-label': `${dayLabel(selected)} בשעה ${timeText(t)}`,
+          onclick: () => { d.start = t; d.day = selected; saveDraft(); go('#/book/confirm'); },
+        }, ltr(timeText(t))))));
+    });
+    times.replaceChildren(...groups.filter(Boolean));
   };
-  render();
+
+  const renderDays = () => {
+    strip.replaceChildren(...days.map((k) => h('button.day', {
+      type: 'button', 'aria-pressed': String(k === selected),
+      class: k === selected ? 'on' : '',
+      onclick: () => { selected = k; d.day = k; saveDraft(); renderDays(); renderTimes(); },
+    }, h('span.day-name', dayLabel(k)), h('span.day-date', shortDate(`${k}T12:00:00Z`)))));
+  };
+  renderDays();
+  renderTimes();
+
+  // גלגלת העכבר בדסקטופ מזיזה את פס הימים לרוחב (כל עוד יש לאן לגלול).
+  strip.addEventListener('wheel', (e) => {
+    if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+    const max = strip.scrollWidth - strip.clientWidth;
+    if (max <= 0) return;
+    const pos = Math.abs(strip.scrollLeft); // ב-RTL הערך שלילי
+    if ((e.deltaY > 0 && pos >= max - 1) || (e.deltaY < 0 && pos <= 1)) return;
+    e.preventDefault();
+    strip.scrollBy({ left: getComputedStyle(strip).direction === 'rtl' ? -e.deltaY : e.deltaY });
+  }, { passive: false });
 
   mount(h('main.page', header('מתי נוח לך?', { back: '#/book' }), summary, strip, times));
+  strip.querySelector('.on')?.scrollIntoView({ inline: 'center', block: 'nearest' });
 }
 
 export function confirm() {
-  if (!state.draft?.start) return go('#/book');
+  const d = draft();
+  if (!d.items.length) return go('#/book', { replace: true });
+  if (!d.start || new Date(d.start) < new Date()) return go('#/book/time', { replace: true });
   const { duration, price } = draftTotals();
-  const start = state.draft.start;
+  const start = d.start;
+  const today = dateKey(start) === todayKey();
   const btn = h('button.btn.primary.huge', { type: 'button' }, 'אישור וקביעת התור');
   btn.onclick = busy(btn, async () => {
     const { data, error } = await state.sb.rpc('book_appointment', {
-      p_business: state.business.id, p_items: state.draft.items, p_start: start,
+      p_business: state.business.id, p_items: d.items, p_start: start,
     });
     if (error) {
-      toast(errorText(error), 'error');
-      if (/SLOT_TAKEN/.test(error.message)) go('#/book/time');
-      if (/ALREADY_BOOKED/.test(error.message)) go('#/mine');
-      return;
+      if (/SLOT_TAKEN/.test(error.message)) {
+        toast(errorText(error), 'error');
+        d.start = null;
+        saveDraft();
+        return go('#/book/time');
+      }
+      if (/ALREADY_BOOKED/.test(error.message)) {
+        toast(errorText(error));
+        resetDraft();
+        return goFrom('#/', '#/mine');
+      }
+      return showError(error);
     }
     state.lastBooked = data;
-    state.draft = null;
-    go('#/booked');
+    resetDraft();
+    goFrom('#/', '#/booked');
   });
 
   mount(h('main.page',
@@ -323,11 +448,13 @@ export function confirm() {
     h('div.card.stack.confirm',
       row('טיפול', draftText()),
       row('מתי', `${dayLabel(dateKey(start))}, ${longDate(start)}`),
-      row('שעה', timeText(start)),
+      row('שעה', ltr(timeText(start))),
       row('משך', minutesText(duration)),
       row('מחיר', money(price)),
       state.settings.address ? row('כתובת', state.settings.address) : null),
-    h('p.note', 'אפשר לבטל באפליקציה עד סוף היום שלפני התור.'),
+    h('p.note', today
+      ? 'תור להיום אי אפשר לבטל באפליקציה. אם משהו משתנה — צרי קשר.'
+      : 'אפשר לבטל באפליקציה עד סוף היום שלפני התור.'),
     btn));
 }
 
@@ -335,13 +462,14 @@ const row = (k, v) => h('div.kv', h('span.k', k), h('span.v', v));
 
 export function booked() {
   const a = state.lastBooked;
-  if (!a) return go('#/');
-  mount(h('main.page.center',
-    h('div.done-mark', { 'aria-hidden': 'true' }, '✓'),
+  if (!a) return go('#/', { replace: true });
+  mount(h('main.page.center', { 'data-title': 'התור נקבע' },
+    h('div.done-mark', { 'aria-hidden': 'true' }, icon('check')),
     h('h1', 'התור נקבע!'),
     appointmentCard(a),
-    h('p.muted.center-text', 'יום לפני התור תגיע אלייך תזכורת.'),
-    h('a.btn.primary', { href: '#/' }, 'סיום')));
+    // מבטיחים תזכורת רק כשהוואטסאפ באמת מחובר.
+    state.cfg?.whatsapp ? h('p.muted.center-text', 'יום לפני התור תגיע אלייך תזכורת בוואטסאפ.') : null,
+    h('button.btn.primary', { type: 'button', onclick: () => goBack('#/') }, 'סיום')));
 }
 
 // ───────────────────────── התורים שלי ─────────────────────────
@@ -357,33 +485,32 @@ export async function mine() {
   if (e1) throw e1;
   if (e2) throw e2;
 
+  const first = state.profile.name.split(' ')[0];
   const active = upcoming.map((a) => {
     const canCancel = todayKey() < dateKey(a.start_at);
     const cancelBtn = h('button.btn.danger', { type: 'button' }, 'ביטול התור');
     cancelBtn.onclick = busy(cancelBtn, async () => {
-      if (!window.confirm('לבטל את התור?')) return;
+      if (!window.confirm(`לבטל את התור ${whenText(a.start_at)}?`)) return;
       const { error } = await state.sb.rpc('cancel_appointment', { p_id: a.id });
       if (error) return showError(error);
       toast('התור בוטל');
-      mine();
+      await mine();
     });
     return h('div.stack',
       appointmentCard(a),
       canCancel
         ? cancelBtn
         : h('div.stack',
-          h('p.note', 'ביום התור כבר אי אפשר לבטל באפליקציה.'),
-          state.settings.contact_phone
-            ? h('a.btn.secondary', { href: waLink(state.settings.contact_phone), target: '_blank', rel: 'noopener' }, 'צרי קשר')
-            : null));
+          h('p.note', 'תור להיום אי אפשר לבטל באפליקציה. אם משהו משתנה — צרי קשר.'),
+          contactLink(`היי, זו ${first}. יש לי תור היום בשעה ${timeText(a.start_at)} ורציתי לדבר עליו.`)));
   });
 
   mount(h('main.page',
     header('התורים שלי', { back: '#/' }),
     active.length ? h('section.stack', active) : h('section.stack',
       h('p.lead', 'אין לך תור עתידי.'),
-      h('a.btn.primary', { href: '#/book', onclick: () => { state.draft = null; } }, 'קבעי תור')),
+      h('a.btn.primary', { href: '#/book', onclick: startBooking }, 'קבעי תור')),
     past.length ? h('section.stack',
       h('h2', 'תורים קודמים'),
-      past.map((a) => h('div.past', h('span', `${shortDate(a.start_at)} · ${timeText(a.start_at)}`), h('span.muted', itemsText(a.items))))) : null));
+      past.map((a) => h('div.past', h('span', shortDate(a.start_at), ' · ', ltr(timeText(a.start_at))), h('span.muted', itemsText(a.items))))) : null));
 }

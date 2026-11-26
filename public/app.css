@@ -177,7 +177,7 @@ a { color: inherit; }
 
 /* פעולה בתהליך: הטקסט נשאר, ועיגול טעינה קטן לידו */
 .btn.busy, .btn.loading, button[aria-busy="true"] { pointer-events: none; }
-.btn.busy:disabled, .btn.loading:disabled, .btn[aria-busy="true"]:disabled { opacity: .85; }
+.btn.busy:disabled, .btn.loading:disabled, .btn[aria-busy="true"]:disabled { opacity: 1; }
 .btn.busy::after, .btn.loading::after, button[aria-busy="true"]::after {
   content: '';
   width: 1em;
@@ -247,7 +247,7 @@ a { color: inherit; }
   color: inherit;
 }
 .field::placeholder { color: var(--muted); opacity: 1; }
-.field:focus, .field:focus-visible { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft-strong); }
+.field:focus, .field:focus-visible { outline: none; border-color: var(--primary); box-shadow: 0 0 0 1.5px var(--primary); }
 .field[aria-invalid="true"] { border-color: var(--danger); }
 .field[aria-invalid="true"]:focus { border-color: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
 .field-error { color: var(--danger); font-size: var(--fs-sm); font-weight: 500; margin-top: 4px; }
@@ -418,7 +418,7 @@ select.field { appearance: auto; }
 .kv .v { font-weight: 600; text-align: left; }
 .done-mark { width: 84px; height: 84px; border-radius: 50%; background: var(--ok); color: var(--primary-ink); font-size: 2.4rem; /* גודל סמל, לא טקסט */ display: flex; align-items: center; justify-content: center; }
 .done-mark .icon { width: 44px; height: 44px; }
-.past { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+div.past { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
 
 /* ───────── יומן בעלת העסק ───────── */
 /* רווח תחתון: גובה הכפתור העגול + המרווח שלו + אזור הבית של המכשיר, כדי שלא יכסה את היום האחרון */
@@ -539,4 +539,5 @@ select.field { appearance: auto; }
 .summary .btn { white-space: nowrap; }
 .link { gap: 6px; }
 .range > .field-error { flex-basis: 100%; order: 1; }
+.row > .field-error { flex-basis: 100%; }
 .card.unsaved { outline: 2px dashed var(--warn-line); outline-offset: -2px; }

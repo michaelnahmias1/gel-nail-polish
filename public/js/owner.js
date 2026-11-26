@@ -175,31 +175,48 @@ export async function appointment(_params, id) {
   if (error) throw error;
   const back = `#/owner?d=${dateKey(a.start_at)}`;
   const kv = (k, v) => h('div.kv', h('span.k', k), h('span.v', v));
+  const when = dayAndDate(a.start_at);
+  const time = timeText(a.start_at);
 
-  const cancelBtn = h('button.btn.danger', { type: 'button' }, 'ביטול התור');
-  cancelBtn.onclick = busy(cancelBtn, async () => {
-    if (!window.confirm(`לבטל את התור של ${a.customer_name}?`)) return;
-    const { error: e } = await state.sb.rpc('cancel_appointment', { p_id: a.id });
-    if (e) return showError(e);
-    toast('התור בוטל');
-    go(back);
-  });
+  const render = (justCancelled = false) => {
+    const cancelBtn = h('button.btn.danger', { type: 'button' }, 'ביטול התור');
+    cancelBtn.onclick = busy(cancelBtn, async () => {
+      const ok = window.confirm(`לבטל את התור של ${a.customer_name}?\n\n${when}, בשעה ${ltrPlain(time)}.\n\nהלקוחה לא תקבל הודעה אוטומטית על הביטול.`);
+      if (!ok) return;
+      const { error: e } = await state.sb.rpc('cancel_appointment', { p_id: a.id });
+      if (e) return showError(e);
+      a.status = 'cancelled';
+      toast('התור בוטל');
+      render(true);
+    });
 
-  mount(h('main.page',
-    header('פרטי תור', { back }),
-    h('div.card.stack',
-      h('h2', a.customer_name),
-      kv('מתי', `${dayLabel(dateKey(a.start_at))}, ${longDate(a.start_at)}`),
-      kv('שעה', `${timeText(a.start_at)}–${timeText(a.end_at)} (${minutesText(minutesBetween(a.start_at, a.end_at))})`),
-      kv('טיפול', itemsText(a.items)),
-      kv('מחיר', money(a.total_price)),
-      kv('נקבע', a.created_by === 'customer' ? 'על ידי הלקוחה' : 'ידנית'),
-      a.status === 'cancelled' ? kv('מצב', 'בוטל') : null,
-      a.customer_phone ? kv('טלפון', h('bdi', phoneDisplay(a.customer_phone))) : null),
-    a.customer_phone ? h('div.row',
-      h('a.btn.secondary', { href: `tel:${a.customer_phone}` }, 'התקשרות'),
-      h('a.btn.secondary', { href: waLink(a.customer_phone), target: '_blank', rel: 'noopener' }, 'וואטסאפ')) : null,
-    a.status === 'booked' && new Date(a.end_at) > new Date() ? cancelBtn : null));
+    // אחרי ביטול על ידי בעלת העסק המערכת לא שולחת כלום — מציעים הודעה מוכנה.
+    const waText = `היי ${a.customer_name}, כאן ${state.business.name}. התור שלך ב${when} בשעה ${time} בוטל. אפשר לקבוע תור חדש כאן: ${location.origin}/`;
+    const cancelledCard = justCancelled ? h('div.card.warn.stack', { role: 'status' },
+      h('strong', 'התור בוטל. הלקוחה לא קיבלה על כך הודעה.'),
+      a.customer_phone
+        ? h('a.btn.primary', { href: waLink(a.customer_phone, waText), target: '_blank', rel: 'noopener' }, icon('whatsapp'), ' כתבי לה בוואטסאפ')
+        : h('p', 'אין טלפון שמור לתור הזה — כדאי לעדכן אותה בדרך אחרת.'),
+      h('button.btn.secondary', { type: 'button', onclick: () => go(back) }, 'חזרה ליומן')) : null;
+
+    mount(h('main.page',
+      header('פרטי תור', { back }),
+      cancelledCard,
+      h('div.card.stack',
+        h('h2', a.customer_name),
+        kv('מתי', when),
+        kv('שעה', h('span', ltr(range(time, timeText(a.end_at))), ` (${minutesText(minutesBetween(a.start_at, a.end_at))})`)),
+        kv('טיפול', itemsText(a.items)),
+        kv('מחיר', money(a.total_price)),
+        kv('נקבע', a.created_by === 'customer' ? 'על ידי הלקוחה' : 'ידנית'),
+        a.status === 'cancelled' ? kv('מצב', 'בוטל') : null,
+        a.customer_phone ? kv('טלפון', ltr(phoneDisplay(a.customer_phone))) : null),
+      a.customer_phone && !justCancelled ? h('div.row',
+        h('a.btn.secondary', { href: `tel:${a.customer_phone}` }, icon('phone'), ' התקשרות'),
+        h('a.btn.secondary', { href: waLink(a.customer_phone), target: '_blank', rel: 'noopener' }, icon('whatsapp'), ' וואטסאפ')) : null,
+      a.status === 'booked' && new Date(a.end_at) > new Date() ? cancelBtn : null));
+  };
+  render();
 }
 
 // ───────────────────────── תור ידני ─────────────────────────

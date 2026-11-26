@@ -1,5 +1,8 @@
 // נקודת הכניסה: טוען הגדרות, מתחבר למסד, ומנתב בין המסכים לפי הכתובת (#/...).
-import { h, mount, spinner, toast } from './ui.js';
+import {
+  h, mount, spinner, toast, header, setAppName, setRouter, trackNavigation, currentHash,
+  go as navGo, goBack, goFrom, isOffline,
+} from './ui.js';
 import * as customer from './customer.js';
 import * as owner from './owner.js';
 
@@ -27,6 +30,7 @@ export async function loadBusiness() {
   state.business = biz;
   state.settings = settings;
   state.services = services;
+  setAppName(biz.name);
   document.title = biz.name;
 }
 
@@ -45,7 +49,21 @@ export async function loadProfile() {
 export async function logout() {
   await state.sb.auth.signOut();
   state.profile = null;
-  location.hash = '#/login';
+  go('#/login', { replace: true });
+}
+
+// לאן להמשיך אחרי הכניסה (למשל מי שפתחה קישור ישיר ל-#/setup לפני שהתחברה).
+const AFTER_LOGIN = 'gel-after-login';
+function rememberTarget(hash) {
+  try { sessionStorage.setItem(AFTER_LOGIN, hash); } catch { /* מצב פרטי */ }
+}
+export function afterLoginTarget({ consume = false } = {}) {
+  let t = null;
+  try {
+    t = sessionStorage.getItem(AFTER_LOGIN);
+    if (consume) sessionStorage.removeItem(AFTER_LOGIN);
+  } catch { /* מצב פרטי */ }
+  return t && t.startsWith('#/') ? t : '#/';
 }
 
 const routes = [
@@ -65,46 +83,81 @@ const routes = [
   [/^\/owner\/settings\/([a-z]+)$/, owner.settingsSection, { owner: true }],
 ];
 
+const SLOW_MS = 15000;
+let routeSeq = 0;
+
+// מסך שגיאה: שומר את הכותרת של המסך שניסינו לפתוח, ומציע לנסות שוב או לחזור לדף הבית / ליומן.
+function errorScreen(retry, { keepHeader = true } = {}) {
+  const root = document.getElementById('app');
+  const top = keepHeader ? root.querySelector('header.top') : null;
+  const home = isOwner() ? '#/owner' : '#/';
+  const atHome = ['#/', '#/owner', ''].includes(currentHash().split('?')[0]);
+  mount(h('main.page', { 'data-title': 'שגיאה' },
+    top || header('משהו השתבש'),
+    h('div.card.stack.center-text',
+      h('p.lead', { role: 'alert' }, isOffline() ? 'אין חיבור לאינטרנט כרגע.' : 'לא הצלחנו לטעון את המסך.'),
+      h('p.muted', isOffline() ? 'כשהחיבור יחזור, אפשר לנסות שוב.' : 'אפשר לנסות שוב בעוד רגע.'),
+      h('button.btn.primary', { type: 'button', onclick: retry }, 'לנסות שוב'),
+      state.profile && !atHome
+        ? h('button.btn.secondary', { type: 'button', onclick: () => goBack(home) }, isOwner() ? 'חזרה ליומן' : 'חזרה לדף הבית')
+        : null)));
+}
+
+// אחרי ~15 שניות של טעינה: הודעה שזה לוקח יותר זמן, עם «לנסות שוב».
+function slowNotice(seq, retry) {
+  return setTimeout(() => {
+    if (seq !== routeSeq) return;
+    const root = document.getElementById('app');
+    if (root.querySelector('.slow-note')) return;
+    const page = root.querySelector('main') || root;
+    page.append(h('div.slow-note.stack.center-text', { role: 'status' },
+      h('p.muted', 'לוקח יותר זמן מהרגיל…'),
+      h('button.btn.secondary', { type: 'button', onclick: retry }, 'לנסות שוב')));
+  }, SLOW_MS);
+}
+
 async function route() {
-  const raw = location.hash.replace(/^#/, '') || '/';
+  if (!trackNavigation()) return;
+  const seq = ++routeSeq;
+  const raw = currentHash().replace(/^#/, '') || '/';
   const [path, query = ''] = raw.split('?');
   const params = Object.fromEntries(new URLSearchParams(query));
   const match = routes.find(([re]) => re.test(path));
-  if (!match) {
-    location.hash = '#/';
-    return;
-  }
+  if (!match) return go('#/', { replace: true });
   const [re, view, opts = {}] = match;
 
   if (!opts.public && !state.profile) {
-    location.hash = '#/login';
-    return;
+    if (path !== '/') rememberTarget(currentHash());
+    return go('#/login', { replace: true });
   }
   if (state.profile && !state.profile.name && path !== '/name' && !opts.public) {
-    location.hash = '#/name';
-    return;
+    return go('#/name', { replace: true });
   }
-  if (opts.owner && !isOwner()) {
-    location.hash = '#/';
-    return;
-  }
+  if (opts.owner && !isOwner()) return go('#/', { replace: true });
+
+  const slow = slowNotice(seq, () => route());
   try {
     await view(params, ...(path.match(re).slice(1)));
   } catch (e) {
     console.error(e);
-    mount(h('main.page.center',
-      h('p.lead', 'לא הצלחנו לטעון את המסך.'),
-      h('button.btn.primary', { onclick: () => route() }, 'לנסות שוב')));
+    if (seq === routeSeq) errorScreen(() => route());
+  } finally {
+    clearTimeout(slow);
   }
 }
 
-export const go = (hash) => {
-  if (location.hash === hash) route();
-  else location.hash = hash;
-};
+// go('#/x') — מעבר; go('#/x', {replace: true}) — הפניה שמחליפה את הצעד הנוכחי (ראו ui.js).
+export const go = navGo;
+export { goBack, goFrom };
 
 async function boot() {
+  setRouter(route);
   mount(h('main.page.center', spinner()));
+  const slow = setTimeout(() => {
+    document.getElementById('app').append(h('div.slow-note.stack.center-text', { role: 'status' },
+      h('p.muted', 'לוקח יותר זמן מהרגיל…'),
+      h('button.btn.secondary', { type: 'button', onclick: () => location.reload() }, 'לנסות שוב')));
+  }, SLOW_MS);
   try {
     const res = await fetch('/api/config');
     if (!res.ok) throw new Error('config ' + res.status);
@@ -115,16 +168,19 @@ async function boot() {
     await Promise.all([loadBusiness(), loadProfile()]);
   } catch (e) {
     console.error(e);
-    mount(h('main.page.center',
-      h('p.lead', 'אין חיבור כרגע.'),
-      h('button.btn.primary', { onclick: () => location.reload() }, 'לנסות שוב')));
+    mount(h('main.page.center', { 'data-title': 'שגיאה' },
+      h('p.lead', { role: 'alert' }, isOffline() ? 'אין חיבור לאינטרנט כרגע.' : 'לא הצלחנו לטעון את האפליקציה.'),
+      h('p.muted', isOffline() ? 'כשהחיבור יחזור, אפשר לנסות שוב.' : 'אפשר לנסות שוב בעוד רגע.'),
+      h('button.btn.primary', { type: 'button', onclick: () => location.reload() }, 'לנסות שוב')));
     return;
+  } finally {
+    clearTimeout(slow);
   }
 
   state.sb.auth.onAuthStateChange((event) => {
     if (event === 'SIGNED_OUT') {
       state.profile = null;
-      if (!location.hash.startsWith('#/login')) location.hash = '#/login';
+      if (!currentHash().startsWith('#/login')) go('#/login', { replace: true });
     }
   });
   window.addEventListener('hashchange', route);

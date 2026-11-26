@@ -660,6 +660,26 @@ async function services() {
   return h('div.stack', h('p.note', 'טיפול שלא רוצים להציע — מורידים את הסימון "מוצג ללקוחות". תורים שכבר נקבעו לא משתנים.'), list);
 }
 
+// תיאור של חסימה לתצוגה: { text: אלמנטים לדף, plain: טקסט לחלון אישור }.
+function offText(startTs, endTs) {
+  const lastDay = new Date(new Date(endTs) - 1);
+  const sameDay = dateKey(startTs) === dateKey(lastDay);
+  const fullDays = timeText(startTs) === '00:00' && timeText(endTs) === '00:00';
+  const d = (ts) => `יום ${dayName(weekdayOf(dateKey(ts)))} ${shortDate(ts)}`;
+  if (fullDays && sameDay) return { text: [d(startTs), ' · כל היום'], plain: `${d(startTs)}, כל היום` };
+  if (fullDays) {
+    const r = range(shortDate(startTs), shortDate(lastDay));
+    return { text: [ltr(r), ' · ימים שלמים'], plain: `${ltrPlain(r)}, ימים שלמים` };
+  }
+  if (sameDay) {
+    const r = range(timeText(startTs), timeText(endTs));
+    return { text: [d(startTs), ' ', ltr(r)], plain: `${d(startTs)}, ${ltrPlain(r)}` };
+  }
+  const a = `${shortDate(startTs)} ${timeText(startTs)}`;
+  const b = `${shortDate(endTs)} ${timeText(endTs)}`;
+  return { text: ['מ-', ltr(a), ' עד ', ltr(b)], plain: `מ-${ltrPlain(a)} עד ${ltrPlain(b)}` };
+}
+
 async function timeoff() {
   const wrap = h('div.stack');
   const load = async () => {
@@ -669,59 +689,93 @@ async function timeoff() {
     return data;
   };
 
-  const fromDate = h('input.field', { type: 'date', id: 'fd', value: todayKey(), min: todayKey() });
-  const toDate = h('input.field', { type: 'date', id: 'td', value: todayKey(), min: todayKey() });
+  const fromDate = h('input.field', { type: 'date', id: 'fd', value: todayKey(), min: todayKey(), required: true });
+  const toDate = h('input.field', { type: 'date', id: 'td', value: todayKey(), min: todayKey(), required: true });
   const allDay = h('input', { type: 'checkbox', checked: true, id: 'allday' });
-  const fromTime = h('input.field', { type: 'time', step: 900, value: '09:00', 'aria-label': 'משעה' });
-  const toTime = h('input.field', { type: 'time', step: 900, value: '13:00', 'aria-label': 'עד שעה' });
-  const timesRow = h('div.row.range', { hidden: true }, fromTime, h('span', 'עד'), toTime);
-  allDay.onchange = () => { timesRow.hidden = allDay.checked; };
-  fromDate.onchange = () => { if (toDate.value < fromDate.value) toDate.value = fromDate.value; };
+  const fromTime = h('input.field', { type: 'time', id: 'ft', step: 900, value: '09:00', 'aria-label': 'משעה' });
+  const toTime = h('input.field', { type: 'time', id: 'tt', step: 900, value: '13:00', 'aria-label': 'עד שעה' });
+  const fromLabel = h('label.label', { for: 'fd' });
+  const toLabel = h('label.label', { for: 'td' });
+  const preview = h('p.note', { 'aria-live': 'polite' });
   const reason = h('input.field', { id: 'reason', placeholder: 'למשל: חופשה', maxlength: 60 });
   const warn = h('div.stack');
   const btn = h('button.btn.primary', { type: 'button' }, 'הוספת חסימה');
 
+  // הטווח המדויק שייחסם. כש«ימים שלמים» כבוי — רצף אחד מהתאריך והשעה הראשונים ועד האחרונים, כולל הלילות.
+  const span = () => {
+    if (!fromDate.value || !toDate.value) return null;
+    if (allDay.checked) return [zonedToDate(fromDate.value, '00:00'), zonedToDate(addDays(toDate.value, 1), '00:00')];
+    if (!fromTime.value || !toTime.value) return null;
+    return [zonedToDate(fromDate.value, fromTime.value), zonedToDate(toDate.value, toTime.value)];
+  };
+
+  const sync = () => {
+    toDate.min = fromDate.value || todayKey();
+    if (fromDate.value && toDate.value < fromDate.value) toDate.value = fromDate.value;
+    fromTime.hidden = allDay.checked;
+    toTime.hidden = allDay.checked;
+    fromLabel.textContent = allDay.checked ? 'מתאריך' : 'מתאריך ושעה';
+    toLabel.textContent = allDay.checked ? 'עד תאריך (כולל)' : 'עד תאריך ושעה';
+    const sp = span();
+    if (!sp) { preview.replaceChildren('בחרי תאריכים ושעות.'); return; }
+    if (!(sp[1] > sp[0])) { preview.replaceChildren('הסיום צריך להיות אחרי ההתחלה.'); return; }
+    const t = offText(sp[0], sp[1]);
+    const multi = !allDay.checked && dateKey(sp[0]) !== dateKey(new Date(sp[1] - 1));
+    preview.replaceChildren(h('strong', 'ייחסם: '), ...t.text, multi ? ' — ברצף אחד, כולל הלילות.' : '');
+  };
+  for (const el of [fromDate, toDate, fromTime, toTime]) el.addEventListener('input', sync);
+  for (const el of [fromDate, toDate, allDay]) el.addEventListener('change', sync);
+  sync();
+
   btn.onclick = busy(btn, async () => {
-    if (!fromDate.value || !toDate.value) return toast('בחרי תאריכים', 'error');
-    const start = allDay.checked ? zonedToDate(fromDate.value, '00:00') : zonedToDate(fromDate.value, fromTime.value);
-    const end = allDay.checked ? zonedToDate(addDays(toDate.value, 1), '00:00') : zonedToDate(toDate.value, toTime.value);
-    if (!(end > start)) return toast('הסיום צריך להיות אחרי ההתחלה', 'error');
+    for (const el of [fromDate, toDate, fromTime, toTime]) clearFieldError(el);
+    if (!fromDate.value) return fieldError(fromDate, 'בחרי תאריך התחלה');
+    if (!toDate.value) return fieldError(toDate, 'בחרי תאריך סיום');
+    if (toDate.value < fromDate.value) return fieldError(toDate, 'תאריך הסיום לפני תאריך ההתחלה');
+    if (!allDay.checked && !fromTime.value) return fieldError(fromTime, 'בחרי שעת התחלה');
+    if (!allDay.checked && !toTime.value) return fieldError(toTime, 'בחרי שעת סיום');
+    const [start, end] = span();
+    if (!(end > start)) return fieldError(allDay.checked ? toDate : toTime, 'הסיום צריך להיות אחרי ההתחלה');
     const { error } = await state.sb.from('time_off').insert({
       business_id: state.business.id, start_at: start.toISOString(), end_at: end.toISOString(), reason: reason.value.trim(),
     });
     if (error) return showError(error);
 
     // תורים שכבר קבועים בזמן החסום — לא מבוטלים אוטומטית. מציגים אותם כדי שתטפלי בהם.
-    const { data: clash } = await state.sb.from('appointments').select('*').eq('business_id', state.business.id)
+    const { data: clash, error: clashError } = await state.sb.from('appointments').select('*').eq('business_id', state.business.id)
       .eq('status', 'booked').lt('start_at', end.toISOString()).gt('end_at', start.toISOString()).order('start_at');
-    warn.replaceChildren(...(clash?.length ? [
-      h('div.card.warn.stack',
-        h('strong', `שימי לב: יש ${clash.length === 1 ? 'תור אחד' : `${clash.length} תורים`} בזמן שחסמת. הם לא בוטלו.`),
-        clash.map((a) => h('div.row.spread',
-          h('a.link', { href: `#/owner/appt/${a.id}` }, `${shortDate(a.start_at)} ${timeText(a.start_at)} · ${a.customer_name}`),
-          a.customer_phone ? h('a.link', { href: waLink(a.customer_phone), target: '_blank', rel: 'noopener' }, 'וואטסאפ') : null))),
-    ] : []));
+    if (clashError) {
+      console.error(clashError);
+      warn.replaceChildren(h('div.card.warn.stack', { role: 'alert' },
+        h('strong', 'החסימה נוספה, אבל לא הצלחתי לבדוק תורים חופפים.'),
+        h('p', 'כדאי לבדוק ביומן אם יש תורים בזמן שחסמת — הם לא מבוטלים אוטומטית.')));
+    } else {
+      warn.replaceChildren(...(clash.length ? [
+        h('div.card.warn.stack', { role: 'alert' },
+          h('strong', `שימי לב: יש ${countText(clash.length, 'תור אחד', 'תורים')} בזמן שחסמת. ${clash.length === 1 ? 'הוא לא בוטל' : 'הם לא בוטלו'}.`),
+          clash.map((a) => h('div.row.spread',
+            h('a.link', { href: `#/owner/appt/${a.id}` }, ltr(`${shortDate(a.start_at)} ${timeText(a.start_at)}`), ` · ${a.customer_name}`),
+            a.customer_phone ? h('a.link', { href: waLink(a.customer_phone), target: '_blank', rel: 'noopener' }, 'וואטסאפ') : null))),
+      ] : []));
+    }
     toast('החסימה נוספה');
     reason.value = '';
-    renderList(await load());
+    try { renderList(await load()); } catch (e) { showError(e); }
   });
 
   const listEl = h('div.stack');
   const renderList = (rows) => {
     listEl.replaceChildren(...(rows.length ? rows.map((o) => {
-      const del = h('button.icon-btn', { type: 'button', 'aria-label': 'מחיקה' }, '✕');
+      const t = offText(o.start_at, o.end_at);
+      const del = h('button.icon-btn', { type: 'button', 'aria-label': `מחיקת החסימה ${t.plain}` }, icon('close'));
       del.onclick = busy(del, async () => {
-        if (!window.confirm('למחוק את החסימה?')) return;
+        if (!window.confirm(`למחוק את החסימה?\n\n${t.plain}${o.reason ? `\n${o.reason}` : ''}\n\nאחרי המחיקה לקוחות יוכלו לקבוע בזמן הזה.`)) return;
         const { error } = await state.sb.from('time_off').delete().eq('id', o.id);
         if (error) return showError(error);
-        renderList(await load());
+        toast('החסימה נמחקה');
+        try { renderList(await load()); } catch (e) { showError(e); }
       });
-      const sameDay = dateKey(o.start_at) === dateKey(new Date(new Date(o.end_at) - 1));
-      const fullDays = timeText(o.start_at) === '00:00' && timeText(o.end_at) === '00:00';
-      const text = fullDays
-        ? (sameDay ? `${shortDate(o.start_at)} · כל היום` : `${shortDate(o.start_at)}–${shortDate(new Date(new Date(o.end_at) - 1))}`)
-        : `${shortDate(o.start_at)} ${timeText(o.start_at)} – ${sameDay ? '' : `${shortDate(o.end_at)} `}${timeText(o.end_at)}`;
-      return h('div.card.row.spread', h('span', h('strong', text), o.reason ? h('span.muted', ` · ${o.reason}`) : null), del);
+      return h('div.card.row.spread', h('span', h('strong', ...t.text), o.reason ? h('span.muted', ` · ${o.reason}`) : null), del);
     }) : [h('p.muted', 'אין חסימות קרובות.')]));
   };
   renderList(await load());
@@ -729,11 +783,10 @@ async function timeoff() {
   wrap.append(
     h('div.card.stack',
       h('h3', 'חסימה חדשה'),
-      h('div.row',
-        h('div.grow', h('label.label', { for: 'fd' }, 'מתאריך'), fromDate),
-        h('div.grow', h('label.label', { for: 'td' }, 'עד תאריך'), toDate)),
       h('label.check-row', { for: 'allday' }, allDay, h('span', 'ימים שלמים')),
-      timesRow,
+      h('div.stack.tight', fromLabel, h('div.row', h('div.grow', fromDate), fromTime)),
+      h('div.stack.tight', toLabel, h('div.row', h('div.grow', toDate), toTime)),
+      preview,
       field('סיבה (רק את רואה)', reason),
       btn),
     warn,

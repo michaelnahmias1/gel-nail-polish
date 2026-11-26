@@ -183,6 +183,10 @@ async function boot() {
   state.sb.auth.onAuthStateChange((event) => {
     if (event === 'SIGNED_OUT') {
       state.profile = null;
+      // מי שנכנסת אחריה באותו מכשיר לא תראה את התור או הטיוטה של הקודמת.
+      state.lastBooked = null;
+      state.draft = null;
+      try { sessionStorage.removeItem('gel-draft'); } catch { /* מצב פרטי */ }
       if (!currentHash().startsWith('#/login')) go('#/login', { replace: true });
     }
   });

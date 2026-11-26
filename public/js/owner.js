@@ -446,15 +446,32 @@ async function hours() {
 async function services() {
   await loadBusiness();
   const list = h('div.stack');
+  let newCount = 0;
+
+  // מצב החצים: הראשון לא עולה, האחרון לא יורד, והכול נעול בזמן הזזה.
+  let moving = false;
+  const updateArrows = () => {
+    const cards = [...list.querySelectorAll('[data-service]')];
+    cards.forEach((c, i) => {
+      c.querySelector('.move-up').disabled = moving || i === 0;
+      c.querySelector('.move-down').disabled = moving || i === cards.length - 1;
+    });
+  };
 
   const editor = (s, isNew = false) => {
-    const name = h('input.field', { value: s.name || '', maxlength: 80, placeholder: 'שם הטיפול', 'aria-label': 'שם' });
-    const dur = h('input.field', { type: 'number', min: 1, max: 600, value: s.duration_min || '', inputmode: 'numeric', 'aria-label': 'משך בדקות' });
-    const price = h('input.field', { type: 'number', min: 0, max: 100000, value: s.price ?? '', inputmode: 'numeric', 'aria-label': 'מחיר' });
+    const key = isNew ? `new${++newCount}` : s.id;
+    const name = h('input.field', { id: `sn-${key}`, value: s.name || '', maxlength: 80, required: true });
+    const dur = h('input.field', { id: `sd-${key}`, type: 'number', min: 1, max: 600, value: s.duration_min || '', inputmode: 'numeric', required: true });
+    const price = h('input.field', { id: `sp-${key}`, type: 'number', min: 0, max: 100000, value: s.price ?? '', inputmode: 'numeric', required: true });
     const perUnit = h('input', { type: 'checkbox', checked: s.price_type === 'per_unit' });
     const active = h('input', { type: 'checkbox', checked: isNew ? true : s.active });
     const btn = h('button.btn.primary.small', { type: 'button' }, isNew ? 'הוספה' : 'שמירה');
+
+    const values = () => JSON.stringify([name.value, dur.value, price.value, perUnit.checked, active.checked]);
+    const initial = values();
+
     btn.onclick = busy(btn, async () => {
+      for (const el of [name, dur, price]) clearFieldError(el);
       const row = {
         name: name.value.trim(),
         duration_min: Number(dur.value),
@@ -462,51 +479,76 @@ async function services() {
         price_type: perUnit.checked ? 'per_unit' : 'fixed',
         active: active.checked,
       };
-      if (!row.name || !(row.duration_min > 0) || !(row.price >= 0) || price.value === '') {
-        return toast('צריך שם, משך ומחיר', 'error');
+      if (!row.name) return fieldError(name, 'צריך שם לטיפול');
+      if (dur.value === '' || !Number.isInteger(row.duration_min) || row.duration_min < 1 || row.duration_min > 600) {
+        return fieldError(dur, 'משך בדקות, בין 1 ל-600');
       }
+      if (price.value === '' || !(row.price >= 0) || row.price > 100000) return fieldError(price, 'מחיר בשקלים, 0 ומעלה');
       const q = isNew
-        ? state.sb.from('services').insert({ ...row, business_id: state.business.id, sort_order: state.services.length + 1 })
-        : state.sb.from('services').update(row).eq('id', s.id);
-      const { error } = await q;
+        ? state.sb.from('services').insert({ ...row, business_id: state.business.id, sort_order: state.services.length + 1 }).select().single()
+        : state.sb.from('services').update(row).eq('id', s.id).select().single();
+      const { data: saved, error } = await q;
       if (error) return showError(error);
-      toast('נשמר');
+      toast(isNew ? 'הטיפול נוסף' : 'נשמר');
       await loadBusiness();
-      render();
+      // מרעננים רק את הכרטיס הזה — עריכות פתוחות בכרטיסים אחרים נשארות.
+      const fresh = state.services.find((x) => x.id === saved.id) || saved;
+      if (isNew) {
+        card.before(editor(fresh));
+        card.replaceWith(editor({ price_type: 'fixed' }, true));
+      } else {
+        card.replaceWith(editor(fresh));
+      }
+      updateArrows();
     });
-    const move = (dir) => async () => {
-      const arr = [...state.services];
-      const i = arr.findIndex((x) => x.id === s.id);
-      const j = i + dir;
-      if (j < 0 || j >= arr.length) return;
-      [arr[i], arr[j]] = [arr[j], arr[i]];
-      const results = await Promise.all(arr.map((x, idx) => state.sb.from('services').update({ sort_order: idx + 1 }).eq('id', x.id)));
-      const bad = results.find((r) => r.error);
-      if (bad) return showError(bad.error);
-      await loadBusiness();
-      render();
+
+    const moveBtn = (dir, cls, label, iconName) => {
+      const b = h(`button.icon-btn.${cls}`, { type: 'button', 'aria-label': `${label} — ${s.name}` }, icon(iconName));
+      b.onclick = busy(b, async () => {
+        if (moving) return;
+        const cards = [...list.querySelectorAll('[data-service]')];
+        const i = cards.indexOf(card);
+        const j = i + dir;
+        if (i < 0 || j < 0 || j >= cards.length) return;
+        const ids = cards.map((c) => c.dataset.service);
+        [ids[i], ids[j]] = [ids[j], ids[i]];
+        moving = true;
+        updateArrows();
+        try {
+          const results = await Promise.all(ids.map((id, idx) => state.sb.from('services').update({ sort_order: idx + 1 }).eq('id', id)));
+          const bad = results.find((r) => r.error);
+          if (bad) return showError(bad.error);
+          if (dir < 0) cards[j].before(card); else cards[j].after(card);
+          await loadBusiness();
+          b.focus();
+        } finally {
+          moving = false;
+          updateArrows();
+        }
+      });
+      return b;
     };
-    return h('div.card.stack.tight', { class: !isNew && !s.active ? 'dim' : '' },
+
+    const card = h('div.card.stack.tight', { class: !isNew && !s.active ? 'dim' : '', 'data-service': isNew ? null : s.id },
       isNew ? h('h3', 'טיפול חדש') : null,
-      name,
+      h('div.stack.tight', h('label.label', { for: name.id }, 'שם הטיפול'), name),
       h('div.row',
-        h('div.grow', h('span.label', 'משך (דק׳)'), dur),
-        h('div.grow', h('span.label', 'מחיר (₪)'), price)),
+        h('div.grow', h('label.label', { for: dur.id }, 'משך (דק׳)'), dur),
+        h('div.grow', h('label.label', { for: price.id }, 'מחיר (₪)'), price)),
       h('label.check-row', perUnit, h('span', 'מחיר ומשך לפי יחידה (למשל לכל ציפורן)')),
       h('label.check-row', active, h('span', 'מוצג ללקוחות')),
       h('div.row.spread',
-        isNew ? h('span') : h('div.row',
-          h('button.icon-btn', { type: 'button', 'aria-label': 'למעלה', onclick: move(-1) }, '↑'),
-          h('button.icon-btn', { type: 'button', 'aria-label': 'למטה', onclick: move(1) }, '↓')),
+        isNew ? h('span') : h('div.row', moveBtn(-1, 'move-up', 'הזזה למעלה', 'up'), moveBtn(1, 'move-down', 'הזזה למטה', 'down')),
         btn));
+    card.addEventListener('input', () => card.classList.toggle('unsaved', values() !== initial));
+    card.addEventListener('change', () => card.classList.toggle('unsaved', values() !== initial));
+    return card;
   };
 
-  const render = () => {
-    list.replaceChildren(
-      ...state.services.map((s) => editor(s)),
-      editor({ price_type: 'fixed' }, true));
-  };
-  render();
+  list.replaceChildren(
+    ...state.services.map((s) => editor(s)),
+    editor({ price_type: 'fixed' }, true));
+  updateArrows();
   return h('div.stack', h('p.note', 'טיפול שלא רוצים להציע — מורידים את הסימון "מוצג ללקוחות". תורים שכבר נקבעו לא משתנים.'), list);
 }
 

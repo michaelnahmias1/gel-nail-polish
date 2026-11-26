@@ -53,8 +53,8 @@ const ICONS = {
 export const ICON_NAMES = Object.keys(ICONS);
 
 export function icon(name, { label } = {}) {
-  const parts = ICONS[name];
-  if (!parts) throw new Error(`icon: unknown icon name "${name}"`);
+  // שם לא מוכר: אייקון ריק, ולא קריסה של המסך כולו.
+  const parts = ICONS[name] || [];
   const svg = document.createElementNS(SVG_NS, 'svg');
   const attrs = {
     viewBox: '0 0 24 24',

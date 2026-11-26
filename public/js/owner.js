@@ -62,14 +62,28 @@ export function claim() {
 
 // ───────────────────────── יומן שבועי ─────────────────────────
 
-export async function calendar(params = {}) {
+let calendarParams = null; // הפרמטרים של היומן שמוצג כרגע (לרענון)
+
+export function calendar(params = {}) {
+  calendarParams = params;
+  return renderCalendar(params, { silent: false });
+}
+
+// רענון בשקט כשחוזרים לאפליקציה (למשל אחרי שלקוחה קבעה תור בזמן שהטלפון היה נעול).
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  if (!document.querySelector('main[data-view="calendar"]')) return;
+  renderCalendar(calendarParams || {}, { silent: true }).catch(showError);
+});
+
+async function renderCalendar(params, { silent }) {
   const focus = params.d && /^\d{4}-\d{2}-\d{2}$/.test(params.d) ? params.d : todayKey();
   const weekStart = addDays(focus, -weekdayOf(focus));
   const weekEnd = addDays(weekStart, 7);
   const fromTs = zonedToDate(weekStart, '00:00').toISOString();
   const toTs = zonedToDate(weekEnd, '00:00').toISOString();
 
-  mount(h('main.page', ownerTop(), h('div.center', spinner())));
+  if (!silent) mount(h('main.page', ownerTop(), h('div.center', spinner())));
 
   const [appts, offs, hours] = await Promise.all([
     state.sb.from('appointments').select('*').eq('business_id', state.business.id).eq('status', 'booked')
@@ -79,6 +93,8 @@ export async function calendar(params = {}) {
     state.sb.from('working_hours').select('*').eq('business_id', state.business.id).order('start_time'),
   ]);
   for (const r of [appts, offs, hours]) if (r.error) throw r.error;
+  // בזמן הטעינה עברו למסך אחר — לא דורסים אותו.
+  if (silent && !document.querySelector('main[data-view="calendar"]')) return;
 
   const total = appts.data.length;
   const nav = h('div.week-nav',
@@ -95,41 +111,60 @@ export async function calendar(params = {}) {
     const past = k < todayKey();
     const items = [
       ...dayAppts.map((a) => ({ at: a.start_at, el: apptRow(a) })),
-      ...dayOffs.map((o) => ({ at: o.start_at, el: h('div.off-row', '⛔ חסום',
-        o.reason ? ` · ${o.reason}` : '',
-        h('span.muted', ` ${dateKey(o.start_at) === k ? timeText(o.start_at) : '00:00'}–${dateKey(o.end_at) === k ? timeText(o.end_at) : '24:00'}`)) })),
+      ...dayOffs.map((o) => ({ at: o.start_at, el: offRow(o, k) })),
     ].sort((a, b) => new Date(a.at) - new Date(b.at));
 
     days.push(h('section.day-block', { id: `d-${k}`, class: (k === todayKey() ? 'today' : '') + (past ? ' past' : '') },
       h('div.day-head',
-        h('h3', `${dayLabel(k) === 'היום' ? 'היום · ' : ''}יום ${dayName(weekdayOf(k))}`, h('span.muted', ` ${shortDate(`${k}T12:00:00Z`)}`)),
-        h('span.muted', dayHours.length ? dayHours.map((w) => `${w.start_time.slice(0, 5)}–${w.end_time.slice(0, 5)}`).join(', ') : 'סגור')),
+        h('h3', `${dayLabel(k) === 'היום' ? 'היום · ' : ''}יום ${dayName(weekdayOf(k))}`, ' ', h('span.muted', ltr(shortDate(`${k}T12:00:00Z`)))),
+        h('span.muted', dayHours.length
+          ? dayHours.flatMap((w, j) => [j ? ', ' : null, ltr(range(w.start_time.slice(0, 5), w.end_time.slice(0, 5)))])
+          : 'סגור')),
       items.length ? items.map((x) => x.el) : h('p.muted.small', past ? '' : 'אין תורים'),
-      past ? null : h('a.add-here', { href: `#/owner/new?d=${k}` }, '+ תור ידני')));
+      past ? null : h('a.add-here', { href: `#/owner/new?d=${k}` }, icon('plus'), ' תור ידני')));
   }
 
-  mount(h('main.page.owner',
+  const y = window.scrollY;
+  mount(h('main.page.owner', { 'data-view': 'calendar' },
     ownerTop(),
     pushBanner(),
     nav,
-    h('p.muted.center-text', `${longDate(`${weekStart}T12:00:00Z`)} – ${longDate(`${addDays(weekStart, 6)}T12:00:00Z`)} · ${total ? `${total} תורים` : 'אין תורים'}`),
+    h('p.muted.center-text', `${longDate(`${weekStart}T12:00:00Z`)} – ${longDate(`${addDays(weekStart, 6)}T12:00:00Z`)} · ${total ? countText(total, 'תור אחד', 'תורים') : 'אין תורים'}`),
     days,
-    h('a.fab', { href: `#/owner/new?d=${focus < todayKey() ? todayKey() : focus}`, 'aria-label': 'תור ידני' }, '+')));
-  document.getElementById(`d-${focus}`)?.scrollIntoView({ block: 'start' });
+    h('a.fab', { href: `#/owner/new?d=${focus < todayKey() ? todayKey() : focus}`, 'aria-label': 'תור ידני' }, icon('plus'))));
+  if (silent) window.scrollTo(0, y);
+  else document.getElementById(`d-${focus}`)?.scrollIntoView({ block: 'start' });
+}
+
+function offRow(o, k) {
+  const fromStart = dateKey(o.start_at) !== k;          // התחילה ביום קודם
+  const toEnd = dateKey(o.end_at) !== k;                // נמשכת אחרי חצות
+  const when = fromStart && toEnd ? 'כל היום'
+    : ltr(range(fromStart ? '00:00' : timeText(o.start_at), toEnd ? '24:00' : timeText(o.end_at)));
+  return h('div.off-row', icon('block'), ' חסום',
+    o.reason ? ` · ${o.reason}` : '',
+    ' ', h('span.muted', when));
 }
 
 function ownerTop() {
+  const refresh = h('button.icon-btn', { type: 'button', 'aria-label': 'רענון היומן' }, icon('refresh'));
+  refresh.onclick = busy(refresh, async () => {
+    try {
+      await renderCalendar(calendarParams || {}, { silent: true });
+      toast('היומן עודכן');
+    } catch (e) { showError(e); }
+  });
   return h('header.top.owner-top',
-    h('a.icon-btn', { href: '#/owner/settings', 'aria-label': 'הגדרות' }, '⚙'),
+    h('a.icon-btn', { href: '#/owner/settings', 'aria-label': 'הגדרות' }, icon('settings')),
     h('h1', state.business.name),
-    h('span.back-space'));
+    refresh);
 }
 
 function apptRow(a) {
   return h('a.appt-row', { href: `#/owner/appt/${a.id}` },
     h('span.appt-time', timeText(a.start_at), h('small', timeText(a.end_at))),
     h('span.appt-main', h('strong', a.customer_name), h('span.muted', itemsText(a.items))),
-    h('span.appt-side', money(a.total_price), a.created_by === 'owner' ? h('small.tag', 'ידני') : null));
+    h('span.appt-side', h('span.muted', money(a.total_price)), a.created_by === 'owner' ? h('small.tag', 'ידני') : null));
 }
 
 // ───────────────────────── פרטי תור ─────────────────────────

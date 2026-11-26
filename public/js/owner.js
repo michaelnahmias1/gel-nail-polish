@@ -63,6 +63,10 @@ export function claim() {
 // ───────────────────────── יומן שבועי ─────────────────────────
 
 let calendarParams = null; // הפרמטרים של היומן שמוצג כרגע (לרענון)
+let calendarToken = 0;     // רק הטעינה האחרונה מציירת
+
+// האם הכתובת עדיין של היומן (#/ או #/owner)? כדי לא לצייר יומן מעל מסך שכבר עברו אליו.
+const onCalendarRoute = () => ['/', '/owner'].includes((location.hash.replace(/^#/, '') || '/').split('?')[0]);
 
 export function calendar(params = {}) {
   calendarParams = params;
@@ -76,7 +80,11 @@ document.addEventListener('visibilitychange', () => {
   renderCalendar(calendarParams || {}, { silent: true }).catch(showError);
 });
 
+// מחזירה true אם היומן צויר.
 async function renderCalendar(params, { silent }) {
+  // רענון שקט רק כשהיומן כבר מוצג — לא באמצע טעינה ראשונה.
+  if (silent && !document.querySelector('main[data-view="calendar"]')) return false;
+  const token = ++calendarToken;
   const focus = params.d && /^\d{4}-\d{2}-\d{2}$/.test(params.d) ? params.d : todayKey();
   const weekStart = addDays(focus, -weekdayOf(focus));
   const weekEnd = addDays(weekStart, 7);
@@ -93,8 +101,9 @@ async function renderCalendar(params, { silent }) {
     state.sb.from('working_hours').select('*').eq('business_id', state.business.id).order('start_time'),
   ]);
   for (const r of [appts, offs, hours]) if (r.error) throw r.error;
-  // בזמן הטעינה עברו למסך אחר — לא דורסים אותו.
-  if (silent && !document.querySelector('main[data-view="calendar"]')) return;
+  // בזמן הטעינה עברו למסך אחר או לשבוע אחר — לא דורסים.
+  if (token !== calendarToken || !onCalendarRoute()) return false;
+  if (silent && !document.querySelector('main[data-view="calendar"]')) return false;
 
   const total = appts.data.length;
   const nav = h('div.week-nav',
@@ -134,12 +143,13 @@ async function renderCalendar(params, { silent }) {
     h('a.fab', { href: `#/owner/new?d=${focus < todayKey() ? todayKey() : focus}`, 'aria-label': 'תור ידני' }, icon('plus'))));
   if (silent) window.scrollTo(0, y);
   else document.getElementById(`d-${focus}`)?.scrollIntoView({ block: 'start' });
+  return true;
 }
 
 function offRow(o, k) {
   const fromStart = dateKey(o.start_at) !== k;          // התחילה ביום קודם
-  const toEnd = dateKey(o.end_at) !== k;                // נמשכת אחרי חצות
-  const when = fromStart && toEnd ? 'כל היום'
+  const toEnd = dateKey(o.end_at) !== k;                // נמשכת עד חצות או אחריו
+  const when = (fromStart || timeText(o.start_at) === '00:00') && toEnd ? 'כל היום'
     : ltr(range(fromStart ? '00:00' : timeText(o.start_at), toEnd ? '24:00' : timeText(o.end_at)));
   return h('div.off-row', icon('block'), ' חסום',
     o.reason ? ` · ${o.reason}` : '',
@@ -150,8 +160,7 @@ function ownerTop() {
   const refresh = h('button.icon-btn', { type: 'button', 'aria-label': 'רענון היומן' }, icon('refresh'));
   refresh.onclick = busy(refresh, async () => {
     try {
-      await renderCalendar(calendarParams || {}, { silent: true });
-      toast('היומן עודכן');
+      if (await renderCalendar(calendarParams || {}, { silent: true })) toast('היומן עודכן');
     } catch (e) { showError(e); }
   });
   return h('header.top.owner-top',
@@ -289,8 +298,8 @@ export function manualBooking(params) {
       serviceList[0]?.querySelector('input')?.focus();
       return;
     }
-    if (durInput.value !== '' && !(Number(durInput.value) >= 5 && Number(durInput.value) <= 600)) {
-      return fieldError(durInput, 'משך בין 5 ל-600 דקות, או להשאיר ריק');
+    if (durInput.value !== '' && !(Number.isInteger(Number(durInput.value)) && Number(durInput.value) >= 5 && Number(durInput.value) <= 600)) {
+      return fieldError(durInput, 'משך בדקות שלמות, בין 5 ל-600, או להשאיר ריק');
     }
     if (!date.value) return fieldError(date, 'בחרי תאריך');
     if (!time.value) return fieldError(time, 'בחרי שעה');
@@ -618,7 +627,9 @@ async function services() {
       if (dur.value === '' || !Number.isInteger(row.duration_min) || row.duration_min < 1 || row.duration_min > 600) {
         return fieldError(dur, 'משך בדקות, בין 1 ל-600');
       }
-      if (price.value === '' || !(row.price >= 0) || row.price > 100000) return fieldError(price, 'מחיר בשקלים, 0 ומעלה');
+      if (price.value === '' || !Number.isInteger(row.price) || row.price < 0 || row.price > 100000) {
+        return fieldError(price, 'מחיר בשקלים שלמים, 0 ומעלה');
+      }
       const q = isNew
         ? state.sb.from('services').insert({ ...row, business_id: state.business.id, sort_order: state.services.length + 1 }).select().single()
         : state.sb.from('services').update(row).eq('id', s.id).select().single();
@@ -639,7 +650,7 @@ async function services() {
 
     const moveBtn = (dir, cls, label, iconName) => {
       const b = h(`button.icon-btn.${cls}`, { type: 'button', 'aria-label': `${label} — ${s.name}` }, icon(iconName));
-      b.onclick = busy(b, async () => {
+      const run = busy(b, async () => {
         if (moving) return;
         const cards = [...list.querySelectorAll('[data-service]')];
         const i = cards.indexOf(card);
@@ -652,15 +663,26 @@ async function services() {
         try {
           const results = await Promise.all(ids.map((id, idx) => state.sb.from('services').update({ sort_order: idx + 1 }).eq('id', id)));
           const bad = results.find((r) => r.error);
-          if (bad) return showError(bad.error);
+          if (bad) {
+            showError(bad.error);
+            // חלק מהעדכונים אולי נשמרו — מסדרים את הכרטיסים לפי מה שבמסד (בלי לבנות אותם מחדש).
+            try {
+              await loadBusiness();
+              const byId = new Map(cards.map((c) => [c.dataset.service, c]));
+              const newEditor = list.lastElementChild;
+              for (const x of state.services) if (byId.has(x.id)) newEditor.before(byId.get(x.id));
+            } catch (e) { console.error(e); }
+            return;
+          }
           if (dir < 0) cards[j].before(card); else cards[j].after(card);
           await loadBusiness();
           b.focus();
         } finally {
           moving = false;
-          updateArrows();
         }
       });
+      // busy מדליק את הכפתור בסוף, ולכן מצב החצים נקבע רק אחריו (חץ בקצה נשאר כבוי).
+      b.onclick = async () => { await run(); updateArrows(); };
       return b;
     };
 
@@ -840,7 +862,6 @@ function rules() {
     if (!Number.isFinite(n) || n < min || n > max || (integer && !Number.isInteger(n))) {
       return [input, `${integer ? 'מספר שלם ' : ''}בין ${min} ל-${max} ${unit}`];
     }
-    if (!integer && !Number.isInteger(n * 2)) return [input, 'בקפיצות של חצי שעה (למשל 1.5)'];
     return null;
   };
 

@@ -403,44 +403,152 @@ function business() {
     btn);
 }
 
+// אזהרה לפני יציאה ממסך עם שינויים שלא נשמרו: לחיצה על קישור או על «חזרה», וסגירה/רענון של הדף.
+// (חזרה בכפתור «אחורה» של הטלפון לא ניתנת לעצירה מכאן.)
+function leaveGuard(anchor, isDirty, message) {
+  let seen = false;
+  setTimeout(() => { seen = true; }, 0);
+  const gone = () => {
+    if (anchor.isConnected) return false;
+    if (seen) release();
+    return true;
+  };
+  const onClick = (e) => {
+    if (gone() || !isDirty()) return;
+    const t = e.target.closest?.('a[href], button.back');
+    if (!t || anchor.contains(t)) return;
+    if (window.confirm(message)) release();
+    else { e.preventDefault(); e.stopImmediatePropagation(); }
+  };
+  const onUnload = (e) => {
+    if (gone() || !isDirty()) return;
+    e.preventDefault();
+    e.returnValue = '';
+  };
+  function release() {
+    document.removeEventListener('click', onClick, true);
+    window.removeEventListener('beforeunload', onUnload);
+  }
+  document.addEventListener('click', onClick, true);
+  window.addEventListener('beforeunload', onUnload);
+}
+
 async function hours() {
   const { data, error } = await state.sb.from('working_hours').select('*').eq('business_id', state.business.id).order('start_time');
   if (error) throw error;
   const model = Array.from({ length: 7 }, (_, wd) => data.filter((r) => r.weekday === wd)
     .map((r) => ({ start: r.start_time.slice(0, 5), end: r.end_time.slice(0, 5) })));
-  const wrap = h('div.stack');
+  const clone = (ranges) => ranges.map((r) => ({ ...r }));
+  // הטווחים האחרונים של כל יום, כדי שכיבוי והדלקה יחזירו פיצול כמו 09–13 + 16–20.
+  const memory = model.map(clone);
+  let saved = JSON.stringify(model);
+  const dayDirty = (wd) => JSON.stringify(model[wd]) !== JSON.stringify(JSON.parse(saved)[wd]);
+  const isDirty = () => JSON.stringify(model) !== saved;
 
-  const render = () => {
-    wrap.replaceChildren(...model.map((ranges, wd) => {
-      const open = ranges.length > 0;
-      const toggle = h('input', { type: 'checkbox', checked: open, id: `wd-${wd}` });
-      toggle.onchange = () => {
-        model[wd] = toggle.checked ? [{ start: '09:00', end: '19:00' }] : [];
-        render();
-      };
-      return h('div.card.stack.tight',
-        h('label.check-row', { for: `wd-${wd}` }, toggle, h('strong.grow', `יום ${dayName(wd)}`), h('span.muted', open ? '' : 'סגור')),
-        ranges.map((r, i) => h('div.row.range',
-          h('input.field', { type: 'time', step: 900, value: r.start, 'aria-label': 'משעה', oninput: (e) => { r.start = e.target.value; } }),
-          h('span', 'עד'),
-          h('input.field', { type: 'time', step: 900, value: r.end, 'aria-label': 'עד שעה', oninput: (e) => { r.end = e.target.value; } }),
-          h('button.icon-btn', { type: 'button', 'aria-label': 'הסרה', onclick: () => { ranges.splice(i, 1); render(); } }, '✕'))),
-        open ? h('button.link', { type: 'button', onclick: () => { ranges.push({ start: ranges.at(-1)?.end || '16:00', end: '19:00' }); render(); } }, '+ טווח נוסף (למשל אחרי הפסקה)') : null);
-    }));
+  const wrap = h('div.stack');
+  const cards = [];   // לפי יום: { card, inputs: [{ start, end }] }
+  const unsavedNote = h('p.note', { hidden: true, role: 'status' }, 'יש שינויים שלא נשמרו.');
+  const refreshMarks = () => {
+    cards.forEach((c, wd) => c.card.classList.toggle('unsaved', dayDirty(wd)));
+    unsavedNote.hidden = !isDirty();
   };
-  render();
+
+  const dayCard = (wd) => {
+    const ranges = model[wd];
+    const open = ranges.length > 0;
+    const day = `יום ${dayName(wd)}`;
+    const toggle = h('input', { type: 'checkbox', checked: open, id: `wd-${wd}` });
+    toggle.onchange = () => {
+      if (toggle.checked) {
+        model[wd] = memory[wd].length ? clone(memory[wd]) : [{ start: '09:00', end: '19:00' }];
+      } else {
+        if (ranges.length) memory[wd] = clone(ranges);
+        model[wd] = [];
+      }
+      rerenderDay(wd, `#wd-${wd}`);
+    };
+    const inputs = ranges.map((r, i) => {
+      const n = ranges.length > 1 ? `, טווח ${i + 1}` : '';
+      const set = (k) => (e) => { r[k] = e.target.value; memory[wd] = clone(ranges); refreshMarks(); };
+      return {
+        start: h('input.field', { type: 'time', step: 900, value: r.start, 'aria-label': `${day}${n}: משעה`, oninput: set('start') }),
+        end: h('input.field', { type: 'time', step: 900, value: r.end, 'aria-label': `${day}${n}: עד שעה`, oninput: set('end') }),
+      };
+    });
+    const addRange = () => {
+      const prev = ranges.at(-1);
+      const s0 = prev?.end ? Math.min(hhmmToMin(prev.end) + 60, 22 * 60 + 45) : 16 * 60;
+      ranges.push({ start: minToHhmm(s0), end: minToHhmm(Math.min(s0 + 180, 23 * 60 + 45)) });
+      memory[wd] = clone(ranges);
+      rerenderDay(wd);
+      cards[wd].inputs.at(-1)?.start.focus();
+    };
+    const card = h('div.card.stack.tight', { 'data-day': wd },
+      h('label.check-row', { for: `wd-${wd}` }, toggle, h('strong.grow', day), h('span.muted', open ? '' : 'סגור')),
+      ranges.map((r, i) => h('div.row.range',
+        inputs[i].start,
+        h('span', 'עד'),
+        inputs[i].end,
+        h('button.icon-btn', {
+          type: 'button',
+          'aria-label': `הסרת הטווח ${r.start || ''}–${r.end || ''}, ${day}`,
+          onclick: () => {
+            ranges.splice(i, 1);
+            if (ranges.length) memory[wd] = clone(ranges);
+            rerenderDay(wd);
+          },
+        }, icon('close')))),
+      open ? h('button.link', { type: 'button', onclick: addRange }, icon('plus'), ' טווח נוסף (למשל אחרי הפסקה)') : null);
+    return { card, inputs };
+  };
+
+  const rerenderDay = (wd, focusSel) => {
+    const next = dayCard(wd);
+    cards[wd].card.replaceWith(next.card);
+    cards[wd] = next;
+    refreshMarks();
+    if (focusSel) next.card.querySelector(focusSel)?.focus();
+  };
+
+  for (let wd = 0; wd < 7; wd++) cards[wd] = dayCard(wd);
+  wrap.replaceChildren(...cards.map((c) => c.card));
+
+  // בדיקה לפני שמירה: טווח שלם, סיום אחרי התחלה, ובלי חפיפה באותו יום. מחזירה את השגיאה הראשונה.
+  const validate = () => {
+    for (let wd = 0; wd < 7; wd++) {
+      const day = `יום ${dayName(wd)}`;
+      const { inputs } = cards[wd];
+      const rs = model[wd].map((r, i) => ({ ...r, i }));
+      for (const r of rs) {
+        if (!r.start) return [inputs[r.i].start, `${day}: חסרה שעת התחלה`];
+        if (!r.end) return [inputs[r.i].end, `${day}: חסרה שעת סיום`];
+        if (r.start >= r.end) return [inputs[r.i].end, `${day}: שעת הסיום צריכה להיות אחרי שעת ההתחלה`];
+      }
+      rs.sort((a, b) => (a.start < b.start ? -1 : 1));
+      for (let k = 1; k < rs.length; k++) {
+        if (rs[k].start < rs[k - 1].end) {
+          return [inputs[rs[k].i].start, `${day}: הטווחים חופפים. כל טווח צריך להתחיל אחרי שהקודם נגמר.`];
+        }
+      }
+    }
+    return null;
+  };
 
   const btn = h('button.btn.primary', { type: 'button' }, 'שמירת שעות העבודה');
   btn.onclick = busy(btn, async () => {
-    const rows = model.flatMap((ranges, wd) => ranges.map((r) => ({ weekday: wd, start_time: r.start, end_time: r.end })));
-    if (rows.some((r) => !r.start_time || !r.end_time || r.start_time >= r.end_time)) {
-      return toast('בכל טווח, שעת הסיום צריכה להיות אחרי שעת ההתחלה', 'error');
-    }
+    const bad = validate();
+    if (bad) return fieldError(...bad);
+    const rows = model.flatMap((ranges, wd) => [...ranges].sort((a, b) => (a.start < b.start ? -1 : 1))
+      .map((r) => ({ weekday: wd, start_time: r.start, end_time: r.end })));
     const { error: e } = await state.sb.rpc('set_working_hours', { p_business: state.business.id, p_rows: rows });
     if (e) return showError(e);
+    saved = JSON.stringify(model);
+    refreshMarks();
     toast('שעות העבודה נשמרו');
   });
-  return h('div.stack', h('p.note', 'תורים שכבר נקבעו לא משתנים כשמשנים שעות.'), wrap, btn);
+  const body = h('div.stack', h('p.note', 'תורים שכבר נקבעו לא משתנים כשמשנים שעות.'), wrap, unsavedNote, btn);
+  leaveGuard(body, isDirty, 'יש שינויים בשעות העבודה שלא נשמרו. לצאת בלי לשמור?');
+  return body;
 }
 
 async function services() {
